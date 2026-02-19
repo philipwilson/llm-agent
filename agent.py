@@ -15,6 +15,32 @@ import sys
 
 from anthropic import AnthropicVertex
 
+
+# --- Colour helpers (ANSI) ---
+
+def _supports_color():
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+USE_COLOR = _supports_color()
+
+def _ansi(code):
+    def wrap(text):
+        if not USE_COLOR:
+            return text
+        return f"\033[{code}m{text}\033[0m"
+    return wrap
+
+bold    = _ansi("1")
+dim     = _ansi("2")
+red     = _ansi("31")
+green   = _ansi("32")
+yellow  = _ansi("33")
+cyan    = _ansi("36")
+
 MODELS = {
     "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
@@ -368,7 +394,7 @@ def confirm_edit(prompt_lines):
     """Show a preview and ask for Y/n confirmation."""
     for line in prompt_lines:
         print(line)
-    answer = input("  Apply? [Y/n] ").strip().lower()
+    answer = input(f"  {dim('Apply? [Y/n]')} ").strip().lower()
     return answer in ("", "y", "yes")
 
 
@@ -379,17 +405,17 @@ def handle_write_file(params):
     action = "overwrite" if exists else "create"
     lines = content.splitlines()
 
-    preview = [f"  write_file: {action} {path} ({len(lines)} lines)"]
+    preview = [f"  {bold('write_file')}: {action} {cyan(path)} ({len(lines)} lines)"]
     # Show a compact preview — first/last few lines
     if len(lines) <= 10:
         for line in lines:
-            preview.append(f"  + {line}")
+            preview.append(f"  {green('+' + ' ' + line)}")
     else:
         for line in lines[:5]:
-            preview.append(f"  + {line}")
-        preview.append(f"  ... ({len(lines) - 10} more lines) ...")
+            preview.append(f"  {green('+' + ' ' + line)}")
+        preview.append(f"  {dim(f'... ({len(lines) - 10} more lines) ...')}")
         for line in lines[-5:]:
-            preview.append(f"  + {line}")
+            preview.append(f"  {green('+' + ' ' + line)}")
 
     if not confirm_edit(preview):
         return "(user declined to write this file)"
@@ -420,11 +446,11 @@ def handle_edit_file(params):
     if count > 1:
         return f"(error: old_string matches {count} locations in {path}, must be unique)"
 
-    preview = [f"  edit_file: {path}"]
+    preview = [f"  {bold('edit_file')}: {cyan(path)}"]
     for line in old_string.splitlines():
-        preview.append(f"  - {line}")
+        preview.append(f"  {red('-' + ' ' + line)}")
     for line in new_string.splitlines():
-        preview.append(f"  + {line}")
+        preview.append(f"  {green('+' + ' ' + line)}")
 
     if not confirm_edit(preview):
         return "(user declined this edit)"
@@ -445,14 +471,14 @@ def is_dangerous(command):
 
 def confirm(command, description=None, auto_approve=False):
     if description:
-        print(f"  # {description}")
-    print(f"  $ {command}")
+        print(f"  {dim('#')} {dim(description)}")
+    print(f"  {bold('$')} {bold(command)}")
     if auto_approve and not is_dangerous(command):
-        print("  (auto-approved)")
+        print(f"  {dim('(auto-approved)')}")
         return True
     if auto_approve and is_dangerous(command):
-        print("  ⚠ dangerous command, requires confirmation")
-    answer = input("  Run? [Y/n] ").strip().lower()
+        print(f"  {yellow('⚠ dangerous command, requires confirmation')}")
+    answer = input(f"  {dim('Run? [Y/n]')} ").strip().lower()
     return answer in ("", "y", "yes")
 
 
@@ -540,13 +566,13 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
             else:
                 output = "(user declined to run this command)"
         elif name == "read_file":
-            print(f"  read_file: {params.get('path', '')}")
+            print(f"  {bold('read_file')}: {cyan(params.get('path', ''))}")
             output = handle_read_file(params)
         elif name == "list_directory":
-            print(f"  list_directory: {params.get('path', '.')}")
+            print(f"  {bold('list_directory')}: {cyan(params.get('path', '.'))}")
             output = handle_list_directory(params)
         elif name == "search_files":
-            print(f"  search_files: {params.get('pattern', '')} in {params.get('path', '.')}")
+            print(f"  {bold('search_files')}: {params.get('pattern', '')} in {cyan(params.get('path', '.'))}")
             output = handle_search_files(params)
         elif name == "write_file":
             output = handle_write_file(params)
@@ -555,7 +581,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
         else:
             output = f"(unknown tool: {name})"
 
-        print(f"  → {len(output.splitlines())} lines of output")
+        print(dim(f"  → {len(output.splitlines())} lines of output"))
         tool_results.append(
             {
                 "type": "tool_result",
@@ -578,13 +604,14 @@ def format_tokens(n):
 
 def agent_loop(client, model, auto_approve=False):
     mode = "YOLO mode" if auto_approve else "confirm mode"
-    print(f"Agent ready (model: {model}, {mode}). Type a question or 'quit' to exit.\n")
+    print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
+    print(dim("Type a question or 'quit' to exit.\n"))
     conversation = []
     session_usage = {"input": 0, "output": 0}
 
     while True:
         try:
-            user_input = input("> ").strip()
+            user_input = input(f"{bold('>')} ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.")
             break
@@ -609,17 +636,17 @@ def agent_loop(client, model, auto_approve=False):
                 break
             steps += 1
             if steps >= MAX_STEPS:
-                print(f"\n(hit step limit of {MAX_STEPS}, stopping)")
+                print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
                 break
 
         session_usage["input"] += turn_usage["input"]
         session_usage["output"] += turn_usage["output"]
-        print(
+        print(dim(
             f"  [{format_tokens(turn_usage['input'])} in, "
             f"{format_tokens(turn_usage['output'])} out | "
             f"session: {format_tokens(session_usage['input'])} in, "
             f"{format_tokens(session_usage['output'])} out]"
-        )
+        ))
 
         # Keep the conversation history for follow-up questions
         conversation = messages

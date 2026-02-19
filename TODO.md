@@ -3,7 +3,6 @@
 ## Usability
 
 - **Conversation reset** — A `/clear` command to reset history without restarting the program.
-- **Colour output** — ANSI colours to visually distinguish model text, command proposals, and command output.
 
 ## Architecture
 
