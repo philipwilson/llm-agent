@@ -542,11 +542,52 @@ TOOL_REGISTRY = {
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 2, 4]  # seconds between retries (exponential backoff)
 
+CACHE_CONTROL = {"type": "ephemeral"}
+
+CACHED_SYSTEM = [{
+    "type": "text",
+    "text": SYSTEM_PROMPT,
+    "cache_control": CACHE_CONTROL,
+}]
+
+CACHED_TOOLS = [*TOOLS[:-1], {**TOOLS[-1], "cache_control": CACHE_CONTROL}]
+
+
+def _cache_messages(messages):
+    """Add a cache breakpoint to the last message in the conversation.
+
+    This ensures the growing conversation prefix is cached across
+    successive calls within a single question.
+    """
+    if not messages:
+        return messages
+    msgs = [*messages[:-1]]
+    last = messages[-1]
+    content = last.get("content")
+    if isinstance(content, str):
+        # Simple string content — wrap in a content block to add cache_control
+        msgs.append({
+            **last,
+            "content": [{
+                "type": "text",
+                "text": content,
+                "cache_control": CACHE_CONTROL,
+            }],
+        })
+    elif isinstance(content, list) and content:
+        # List of content blocks — add cache_control to the last block
+        cached_content = [*content[:-1], {**content[-1], "cache_control": CACHE_CONTROL}]
+        msgs.append({**last, "content": cached_content})
+    else:
+        msgs.append(last)
+    return msgs
+
 
 def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
     # Stream the response with retry logic for transient API errors
     content_blocks = []
     printed_text = False
+    cached_msgs = _cache_messages(messages)
 
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -559,9 +600,9 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
             with client.messages.stream(
                 model=model,
                 max_tokens=65536,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=messages,
+                system=CACHED_SYSTEM,
+                tools=CACHED_TOOLS,
+                messages=cached_msgs,
             ) as stream:
                 for event in stream:
                     if event.type == "content_block_start":
@@ -603,6 +644,10 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
                 if usage_totals is not None and final.usage:
                     usage_totals["input"] += final.usage.input_tokens
                     usage_totals["output"] += final.usage.output_tokens
+                    cache_read = getattr(final.usage, "cache_read_input_tokens", 0) or 0
+                    cache_create = getattr(final.usage, "cache_creation_input_tokens", 0) or 0
+                    usage_totals["cache_read"] = usage_totals.get("cache_read", 0) + cache_read
+                    usage_totals["cache_create"] = usage_totals.get("cache_create", 0) + cache_create
 
             break  # success, exit retry loop
 
@@ -688,7 +733,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
     """
     conversation.append({"role": "user", "content": user_input})
     messages = list(conversation)
-    turn_usage = {"input": 0, "output": 0}
+    turn_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
     steps = 0
 
     try:
@@ -714,7 +759,7 @@ def agent_loop(client, model, auto_approve=False):
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
     print(dim("Type a question, /clear to reset, or 'quit' to exit.\n"))
     conversation = []
-    session_usage = {"input": 0, "output": 0}
+    session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
     while True:
         try:
@@ -738,12 +783,15 @@ def agent_loop(client, model, auto_approve=False):
             client, model, conversation, user_input, auto_approve
         )
 
-        session_usage["input"] += turn_usage["input"]
-        session_usage["output"] += turn_usage["output"]
+        for key in ("input", "output", "cache_read", "cache_create"):
+            session_usage[key] += turn_usage[key]
         if turn_usage["input"] > 0 or turn_usage["output"] > 0:
+            cache_info = ""
+            if turn_usage["cache_read"] > 0:
+                cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
             print(dim(
                 f"  [{format_tokens(turn_usage['input'])} in, "
-                f"{format_tokens(turn_usage['output'])} out | "
+                f"{format_tokens(turn_usage['output'])} out{cache_info} | "
                 f"session: {format_tokens(session_usage['input'])} in, "
                 f"{format_tokens(session_usage['output'])} out]"
             ))
@@ -800,9 +848,12 @@ def main():
             client, model, [], args.c, auto_approve=args.yolo
         )
         if turn_usage["input"] > 0 or turn_usage["output"] > 0:
+            cache_info = ""
+            if turn_usage["cache_read"] > 0:
+                cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
             print(dim(
                 f"  [{format_tokens(turn_usage['input'])} in, "
-                f"{format_tokens(turn_usage['output'])} out]"
+                f"{format_tokens(turn_usage['output'])} out{cache_info}]"
             ), file=sys.stderr)
     else:
         setup_readline()
