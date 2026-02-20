@@ -1,9 +1,5 @@
 # Future Improvements
 
-## Usability
-
-- **Conversation reset** — A `/clear` command to reset history without restarting the program.
-
 ## Architecture
 
 - **Persistent shell session** — Use `pexpect` or a long-lived `subprocess.Popen` so `cd`, `export`, and other stateful commands persist between invocations.

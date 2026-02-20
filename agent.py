@@ -677,7 +677,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
 def agent_loop(client, model, auto_approve=False):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question or 'quit' to exit.\n"))
+    print(dim("Type a question, /clear to reset, or 'quit' to exit.\n"))
     conversation = []
     session_usage = {"input": 0, "output": 0}
 
@@ -693,6 +693,11 @@ def agent_loop(client, model, auto_approve=False):
         if user_input.lower() in ("quit", "exit"):
             print("Bye.")
             break
+        if user_input.strip() == "/clear":
+            conversation = []
+            session_usage = {"input": 0, "output": 0}
+            print(dim("(conversation cleared)"))
+            continue
 
         result, turn_usage = run_question(
             client, model, conversation, user_input, auto_approve
