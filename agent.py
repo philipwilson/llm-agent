@@ -67,33 +67,11 @@ DANGEROUS_PATTERNS = [
     "curl |", "wget |",
 ]
 
-SYSTEM_PROMPT = """\
-You are a Unix CLI assistant. You help users by running shell commands to \
-gather information and analyze it.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SYSTEM_PROMPT_FILE = os.path.join(SCRIPT_DIR, "system_prompt.txt")
 
-You have these tools:
-- read_file: Read file contents with optional line range. Prefer this over \
-cat/head/tail via run_command.
-- list_directory: List directory contents. Prefer this over ls via run_command.
-- search_files: Search file contents with regex. Prefer this over grep/rg via \
-run_command.
-- read_url: Fetch a web page and return its text content. Prefer this over \
-curl via run_command when you need to read a web page.
-- write_file: Create or overwrite a file. Use for creating new files.
-- edit_file: Make a targeted find-and-replace edit in an existing file. The \
-old_string must match exactly and uniquely. Prefer this over write_file when \
-modifying existing files — it's safer and shows a clearer diff.
-- run_command: Run arbitrary shell commands. Use this for anything the other \
-tools don't cover (pipelines, awk, curl, system inspection, etc.).
-
-Guidelines:
-- Prefer the dedicated tools over run_command when they fit the task.
-- Prefer read-only, non-destructive commands.
-- Analyze results before deciding what to do next.
-- When you have enough information, give a clear, concise answer in plain text.
-- If something fails, read the error and try a different approach.
-- Do not guess at file contents or system state — use tools to check.
-"""
+with open(SYSTEM_PROMPT_FILE) as _f:
+    SYSTEM_PROMPT = _f.read()
 
 TOOLS = [
     {
