@@ -49,12 +49,13 @@ Everything is in `agent.py`. The key flow:
 
 ## Tools
 
-The model has six tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has seven tools. Read-only tools run without confirmation; mutating tools always require it.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
 - **`list_directory`** — lists directory entries with type indicators and file sizes. Optional `hidden` flag.
 - **`search_files`** — regex search over file contents using ripgrep (falls back to grep). Supports glob filtering and result cap.
+- **`read_url`** — fetches a web page via curl, converts HTML to plain text via lynx/w3m (regex fallback). Returns title, final URL, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 
 **Mutating (always require confirmation):**
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
