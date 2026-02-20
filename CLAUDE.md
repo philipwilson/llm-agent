@@ -4,14 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A single-file Python agent loop (`agent.py`) that uses Claude models via Google Vertex AI to answer user questions by exploring the filesystem and running Unix commands. The user types a natural language prompt, the model uses tools to gather information, and then synthesizes an answer.
+A single-file Python agent loop (`agent.py`) that uses Claude to answer user questions by exploring the filesystem and running Unix commands. Supports both the direct Anthropic API and Google Vertex AI.
 
 ## Running
 
 ```bash
-# Required env vars
+# Option 1: Direct Anthropic API
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Option 2: Google Vertex AI
 export ANTHROPIC_VERTEX_PROJECT_ID="your-gcp-project-id"
 export CLOUD_ML_REGION="us-east5"  # optional, defaults to us-east5
+
+# If both are set, ANTHROPIC_API_KEY takes priority.
 
 # Run with default model (sonnet)
 python agent.py
@@ -26,13 +31,13 @@ python agent.py -y
 python agent.py --yolo
 ```
 
-Requires `anthropic[vertex]` pip package.
+Requires `anthropic` pip package (add `[vertex]` extra for Vertex AI support).
 
 ## Architecture
 
 Everything is in `agent.py`. The key flow:
 
-1. **`main()`** — parses args (`-m` model, `-y` yolo), sets up readline history, creates Vertex AI client
+1. **`main()`** — parses args (`-m` model, `-y` yolo), sets up readline history, creates API client
 2. **`agent_loop()`** — REPL that reads user input, runs the inner agent loop, maintains conversation history, and prints token usage after each turn
 3. **`agent_turn()`** — streams a single model API call, dispatches tool use, returns when the model produces a final text answer or requests tool results
 4. **Tool handlers** — execute the requested tool and return results to the model

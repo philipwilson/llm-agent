@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-A toy agent loop that uses Claude (via Vertex AI) to answer questions
-by running Unix CLI commands.
+A toy agent loop that uses Claude to answer questions
+by running Unix CLI commands. Supports both the direct Anthropic API
+and Google Vertex AI.
 """
 
 import argparse
@@ -13,7 +14,7 @@ import readline
 import subprocess
 import sys
 
-from anthropic import AnthropicVertex
+import anthropic
 
 
 # --- Colour helpers (ANSI) ---
@@ -247,12 +248,21 @@ def setup_readline():
 
 
 def make_client():
-    region = os.environ.get("CLOUD_ML_REGION", "us-east5")
+    """Create an Anthropic client, auto-detecting the backend.
+
+    Uses the direct Anthropic API if ANTHROPIC_API_KEY is set,
+    otherwise falls back to Vertex AI (requires ANTHROPIC_VERTEX_PROJECT_ID).
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return anthropic.Anthropic()
+
     project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
-    if not project_id:
-        print("Set ANTHROPIC_VERTEX_PROJECT_ID to your GCP project ID.")
-        sys.exit(1)
-    return AnthropicVertex(region=region, project_id=project_id)
+    if project_id:
+        region = os.environ.get("CLOUD_ML_REGION", "us-east5")
+        return anthropic.AnthropicVertex(region=region, project_id=project_id)
+
+    print("Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID.")
+    sys.exit(1)
 
 
 def truncate(text, max_lines=MAX_OUTPUT_LINES):
