@@ -43,6 +43,8 @@ green   = _ansi("32")
 yellow  = _ansi("33")
 cyan    = _ansi("36")
 
+VERSION = "0.1.0"
+
 MODELS = {
     "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
@@ -889,7 +891,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
 def agent_loop(client, model, auto_approve=False):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question, /clear to reset, or 'quit' to exit.\n"))
+    print(dim("Type a question, /clear to reset, /version for info, or 'quit' to exit.\n"))
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
@@ -909,6 +911,9 @@ def agent_loop(client, model, auto_approve=False):
             conversation = []
             session_usage = {"input": 0, "output": 0}
             print(dim("(conversation cleared)"))
+            continue
+        if user_input.strip() == "/version":
+            print(dim(f"agent.py v{VERSION} (model: {model})"))
             continue
 
         result, turn_usage = run_question(
