@@ -280,33 +280,63 @@ def truncate(text, max_lines=MAX_OUTPUT_LINES):
     return "\n".join(kept)
 
 
-def run_command(command):
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=COMMAND_TIMEOUT,
-        )
-        output = ""
-        if result.stdout:
-            output += result.stdout
-        if result.stderr:
-            if output:
-                output += "\n"
-            output += f"[stderr]\n{result.stderr}"
-        if not output:
-            output = "(no output)"
-        return truncate(output)
-    except subprocess.TimeoutExpired:
-        return f"(command timed out after {COMMAND_TIMEOUT}s)"
-    except Exception as e:
-        return f"(error running command: {e})"
+class ShellState:
+    """Tracks working directory across commands."""
+
+    def __init__(self):
+        self.cwd = os.getcwd()
+
+    def run(self, command):
+        try:
+            # Run the command, then capture the shell's cwd afterwards
+            # so that cd (and pushd, popd, etc.) are reflected.
+            wrapped = f'{command}\necho "__CWD__:$(pwd)"'
+            result = subprocess.run(
+                wrapped,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=COMMAND_TIMEOUT,
+                cwd=self.cwd,
+            )
+
+            stdout = result.stdout
+            # Extract and update cwd from the trailing __CWD__ line
+            lines = stdout.splitlines()
+            if lines and lines[-1].startswith("__CWD__:"):
+                new_cwd = lines[-1].split(":", 1)[1]
+                if os.path.isdir(new_cwd):
+                    self.cwd = new_cwd
+                stdout = "\n".join(lines[:-1])
+
+            output = ""
+            if stdout:
+                output += stdout
+            if result.stderr:
+                if output:
+                    output += "\n"
+                output += f"[stderr]\n{result.stderr}"
+            if not output:
+                output = "(no output)"
+            return truncate(output)
+        except subprocess.TimeoutExpired:
+            return f"(command timed out after {COMMAND_TIMEOUT}s)"
+        except Exception as e:
+            return f"(error running command: {e})"
+
+
+shell = ShellState()
+
+
+def _resolve(path):
+    """Resolve a path relative to the shell's working directory."""
+    if os.path.isabs(path):
+        return path
+    return os.path.join(shell.cwd, path)
 
 
 def handle_read_file(params):
-    path = params.get("path", "")
+    path = _resolve(params.get("path", ""))
     offset = max(params.get("offset", 1), 1)
     limit = params.get("limit", 200)
 
@@ -330,7 +360,7 @@ def handle_read_file(params):
 
 
 def handle_list_directory(params):
-    path = params.get("path", ".")
+    path = _resolve(params.get("path", "."))
     hidden = params.get("hidden", False)
 
     try:
@@ -366,7 +396,7 @@ def handle_list_directory(params):
 
 def handle_search_files(params):
     pattern = params.get("pattern", "")
-    path = params.get("path", ".")
+    path = _resolve(params.get("path", "."))
     glob_filter = params.get("glob")
     max_results = params.get("max_results", 50)
 
@@ -522,7 +552,7 @@ def confirm_edit(prompt_lines):
 
 
 def handle_write_file(params):
-    path = params.get("path", "")
+    path = _resolve(params.get("path", ""))
     content = params.get("content", "")
     exists = os.path.exists(path)
     action = "overwrite" if exists else "create"
@@ -553,7 +583,7 @@ def handle_write_file(params):
 
 
 def handle_edit_file(params):
-    path = params.get("path", "")
+    path = _resolve(params.get("path", ""))
     old_string = params.get("old_string", "")
     new_string = params.get("new_string", "")
 
@@ -609,7 +639,7 @@ def handle_run_command(params, auto_approve=False):
     command = params.get("command", "")
     description = params.get("description")
     if confirm(command, description, auto_approve):
-        return run_command(command)
+        return shell.run(command)
     return "(user declined to run this command)"
 
 

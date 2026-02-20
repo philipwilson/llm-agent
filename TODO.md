@@ -6,7 +6,6 @@
 
 ## Architecture
 
-- **Persistent shell session** — Use `pexpect` or a long-lived `subprocess.Popen` so `cd`, `export`, and other stateful commands persist between invocations.
 - **Co-locate tool schemas with handlers** — The tool definitions are ~150 lines of boilerplate separate from the handler functions. Consider generating schemas from decorated functions or co-locating each schema with its handler.
 - **Shared size formatter** — `handle_list_directory` and `format_tokens` both format numbers with k/M suffixes independently. Extract a shared helper.
 
