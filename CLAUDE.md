@@ -64,6 +64,7 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 
 ## Key behaviours
 
+- **Working directory tracking** — `ShellState` tracks `cwd` across commands (like Claude Code: working directory persists, other shell state does not). All file-based tools resolve relative paths against it via `_resolve()`
 - **Streaming** — model responses stream to the terminal as they're generated
 - **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
