@@ -485,6 +485,48 @@ def confirm(command, description=None, auto_approve=False):
     return answer in ("", "y", "yes")
 
 
+def handle_run_command(params, auto_approve=False):
+    command = params.get("command", "")
+    description = params.get("description")
+    if confirm(command, description, auto_approve):
+        return run_command(command)
+    return "(user declined to run this command)"
+
+
+# --- Tool registry ---
+# Each entry maps a tool name to a dict with:
+#   "handler": callable(params, **kwargs) -> str
+#   "log": callable(params) -> None (prints a log line before execution)
+#   "needs_confirm": bool — if True, passes auto_approve to handler
+
+TOOL_REGISTRY = {
+    "read_file": {
+        "handler": handle_read_file,
+        "log": lambda p: print(f"  {bold('read_file')}: {cyan(p.get('path', ''))}"),
+    },
+    "list_directory": {
+        "handler": handle_list_directory,
+        "log": lambda p: print(f"  {bold('list_directory')}: {cyan(p.get('path', '.'))}"),
+    },
+    "search_files": {
+        "handler": handle_search_files,
+        "log": lambda p: print(
+            f"  {bold('search_files')}: {p.get('pattern', '')} in {cyan(p.get('path', '.'))}"
+        ),
+    },
+    "write_file": {
+        "handler": handle_write_file,
+    },
+    "edit_file": {
+        "handler": handle_edit_file,
+    },
+    "run_command": {
+        "handler": handle_run_command,
+        "needs_confirm": True,
+    },
+}
+
+
 def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
     # Stream the response so text appears as it's generated
     content_blocks = []
@@ -561,28 +603,17 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
         name = tool_use["name"]
         params = tool_use["input"]
 
-        if name == "run_command":
-            command = params.get("command", "")
-            description = params.get("description")
-            if confirm(command, description, auto_approve):
-                output = run_command(command)
-            else:
-                output = "(user declined to run this command)"
-        elif name == "read_file":
-            print(f"  {bold('read_file')}: {cyan(params.get('path', ''))}")
-            output = handle_read_file(params)
-        elif name == "list_directory":
-            print(f"  {bold('list_directory')}: {cyan(params.get('path', '.'))}")
-            output = handle_list_directory(params)
-        elif name == "search_files":
-            print(f"  {bold('search_files')}: {params.get('pattern', '')} in {cyan(params.get('path', '.'))}")
-            output = handle_search_files(params)
-        elif name == "write_file":
-            output = handle_write_file(params)
-        elif name == "edit_file":
-            output = handle_edit_file(params)
-        else:
+        entry = TOOL_REGISTRY.get(name)
+        if entry is None:
             output = f"(unknown tool: {name})"
+        else:
+            log_fn = entry.get("log")
+            if log_fn:
+                log_fn(params)
+            if entry.get("needs_confirm"):
+                output = entry["handler"](params, auto_approve=auto_approve)
+            else:
+                output = entry["handler"](params)
 
         print(dim(f"  → {len(output.splitlines())} lines of output"))
         tool_results.append(
