@@ -52,6 +52,7 @@ HISTORY_SIZE = 1000
 MAX_OUTPUT_LINES = 200
 COMMAND_TIMEOUT = 30
 MAX_STEPS = 20
+MAX_CONVERSATION_TURNS = 40
 DANGEROUS_PATTERNS = [
     "rm ", "rm\t", "rmdir", "mkfs", "dd ", "dd\t",
     "> /dev/", "mv ", "mv\t", "chmod", "chown",
@@ -324,12 +325,12 @@ def handle_list_directory(params):
         for name in entries:
             full = os.path.join(path, name)
             try:
-                st = os.stat(full)
-                if os.path.isdir(full):
-                    lines.append(f"  {name}/")
-                elif os.path.islink(full):
+                st = os.lstat(full)
+                if os.path.islink(full):
                     target = os.readlink(full)
                     lines.append(f"  {name} -> {target}")
+                elif os.path.isdir(full):
+                    lines.append(f"  {name}/")
                 else:
                     size = st.st_size
                     if size >= 1_000_000:
@@ -354,7 +355,7 @@ def handle_search_files(params):
     max_results = params.get("max_results", 50)
 
     # Try ripgrep first, fall back to grep
-    cmd = ["rg", "-n", "--no-heading", "--max-count", str(max_results)]
+    cmd = ["rg", "-n", "--no-heading"]
     if glob_filter:
         cmd += ["--glob", glob_filter]
     cmd += [pattern, path]
@@ -373,6 +374,8 @@ def handle_search_files(params):
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT
             )
+        except subprocess.TimeoutExpired:
+            return f"(search timed out after {COMMAND_TIMEOUT}s)"
         except Exception as e:
             return f"(error: {e})"
     except subprocess.TimeoutExpired:
@@ -628,28 +631,45 @@ def agent_loop(client, model, auto_approve=False):
         messages = list(conversation)
         turn_usage = {"input": 0, "output": 0}
         steps = 0
-        while True:
-            messages, done = agent_turn(
-                client, model, messages, auto_approve, usage_totals=turn_usage
-            )
-            if done:
-                break
-            steps += 1
-            if steps >= MAX_STEPS:
-                print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
-                break
+        cancelled = False
+        try:
+            while True:
+                messages, done = agent_turn(
+                    client, model, messages, auto_approve, usage_totals=turn_usage
+                )
+                if done:
+                    break
+                steps += 1
+                if steps >= MAX_STEPS:
+                    print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
+                    break
+        except KeyboardInterrupt:
+            print(f"\n{dim('(interrupted)')}")
+            cancelled = True
 
         session_usage["input"] += turn_usage["input"]
         session_usage["output"] += turn_usage["output"]
-        print(dim(
-            f"  [{format_tokens(turn_usage['input'])} in, "
-            f"{format_tokens(turn_usage['output'])} out | "
-            f"session: {format_tokens(session_usage['input'])} in, "
-            f"{format_tokens(session_usage['output'])} out]"
-        ))
+        if turn_usage["input"] > 0 or turn_usage["output"] > 0:
+            print(dim(
+                f"  [{format_tokens(turn_usage['input'])} in, "
+                f"{format_tokens(turn_usage['output'])} out | "
+                f"session: {format_tokens(session_usage['input'])} in, "
+                f"{format_tokens(session_usage['output'])} out]"
+            ))
 
-        # Keep the conversation history for follow-up questions
+        if cancelled:
+            # Don't add partial results to conversation history
+            continue
+
+        # Keep the conversation history for follow-up questions,
+        # but trim old turns to avoid unbounded context growth.
+        # Keep the most recent turns, always starting with a user message.
         conversation = messages
+        if len(conversation) > MAX_CONVERSATION_TURNS:
+            conversation = conversation[-MAX_CONVERSATION_TURNS:]
+            # Ensure we start with a user message
+            while conversation and conversation[0]["role"] != "user":
+                conversation.pop(0)
 
 
 def main():
