@@ -39,7 +39,7 @@ Requires `anthropic` pip package (add `[vertex]` extra for Vertex AI support).
 
 ## Architecture
 
-Everything is in `agent.py`. The key flow:
+The agent logic is in `agent.py`, with the system prompt in `system_prompt.txt` (edit the prompt without touching Python). The key flow:
 
 1. **`main()`** — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
 2. **`run_question()`** — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
@@ -66,7 +66,8 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 
 - **Streaming** — model responses stream to the terminal as they're generated
 - **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
-- **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping)
+- **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
+- **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
 
 ## Model Names
