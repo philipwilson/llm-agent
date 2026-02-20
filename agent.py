@@ -646,6 +646,34 @@ def format_tokens(n):
     return str(n)
 
 
+def run_question(client, model, conversation, user_input, auto_approve=False):
+    """Run a single question through the agent loop.
+
+    Returns (updated_conversation, turn_usage) or (None, turn_usage) if cancelled.
+    """
+    conversation.append({"role": "user", "content": user_input})
+    messages = list(conversation)
+    turn_usage = {"input": 0, "output": 0}
+    steps = 0
+
+    try:
+        while True:
+            messages, done = agent_turn(
+                client, model, messages, auto_approve, usage_totals=turn_usage
+            )
+            if done:
+                break
+            steps += 1
+            if steps >= MAX_STEPS:
+                print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
+                break
+    except KeyboardInterrupt:
+        print(f"\n{dim('(interrupted)')}")
+        return None, turn_usage
+
+    return messages, turn_usage
+
+
 def agent_loop(client, model, auto_approve=False):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
@@ -666,27 +694,9 @@ def agent_loop(client, model, auto_approve=False):
             print("Bye.")
             break
 
-        conversation.append({"role": "user", "content": user_input})
-
-        # Inner loop: let the model run commands until it produces a final answer
-        messages = list(conversation)
-        turn_usage = {"input": 0, "output": 0}
-        steps = 0
-        cancelled = False
-        try:
-            while True:
-                messages, done = agent_turn(
-                    client, model, messages, auto_approve, usage_totals=turn_usage
-                )
-                if done:
-                    break
-                steps += 1
-                if steps >= MAX_STEPS:
-                    print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
-                    break
-        except KeyboardInterrupt:
-            print(f"\n{dim('(interrupted)')}")
-            cancelled = True
+        result, turn_usage = run_question(
+            client, model, conversation, user_input, auto_approve
+        )
 
         session_usage["input"] += turn_usage["input"]
         session_usage["output"] += turn_usage["output"]
@@ -698,14 +708,14 @@ def agent_loop(client, model, auto_approve=False):
                 f"{format_tokens(session_usage['output'])} out]"
             ))
 
-        if cancelled:
-            # Don't add partial results to conversation history
+        if result is None:
+            # Cancelled — don't update conversation history
             continue
 
         # Keep the conversation history for follow-up questions,
         # but trim old turns to avoid unbounded context growth.
         # Keep the most recent turns, always starting with a user message.
-        conversation = messages
+        conversation = result
         if len(conversation) > MAX_CONVERSATION_TURNS:
             conversation = conversation[-MAX_CONVERSATION_TURNS:]
             # Ensure we start with a user message
@@ -726,12 +736,28 @@ def main():
         action="store_true",
         help="Auto-approve commands (dangerous commands still require confirmation)",
     )
+    parser.add_argument(
+        "-c",
+        metavar="QUESTION",
+        help="Run a single question and exit (non-interactive mode)",
+    )
     args = parser.parse_args()
 
     model = MODELS[args.model]
-    setup_readline()
     client = make_client()
-    agent_loop(client, model, auto_approve=args.yolo)
+
+    if args.c:
+        _, turn_usage = run_question(
+            client, model, [], args.c, auto_approve=args.yolo
+        )
+        if turn_usage["input"] > 0 or turn_usage["output"] > 0:
+            print(dim(
+                f"  [{format_tokens(turn_usage['input'])} in, "
+                f"{format_tokens(turn_usage['output'])} out]"
+            ), file=sys.stderr)
+    else:
+        setup_readline()
+        agent_loop(client, model, auto_approve=args.yolo)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,10 @@ python agent.py -m sonnet
 # Auto-approve safe commands
 python agent.py -y
 python agent.py --yolo
+
+# Single-shot mode (non-interactive)
+python agent.py -c "how much disk space is free?"
+python agent.py -c "what's in /etc/hosts?" -m haiku --yolo
 ```
 
 Requires `anthropic` pip package (add `[vertex]` extra for Vertex AI support).
@@ -37,13 +41,11 @@ Requires `anthropic` pip package (add `[vertex]` extra for Vertex AI support).
 
 Everything is in `agent.py`. The key flow:
 
-1. **`main()`** — parses args (`-m` model, `-y` yolo), sets up readline history, creates API client
-2. **`agent_loop()`** — REPL that reads user input, runs the inner agent loop, maintains conversation history, and prints token usage after each turn
-3. **`agent_turn()`** — streams a single model API call, dispatches tool use, returns when the model produces a final text answer or requests tool results
-4. **Tool handlers** — execute the requested tool and return results to the model
-5. **`confirm()`** — gates `run_command` execution; auto-approves in yolo mode unless the command matches `DANGEROUS_PATTERNS`
-
-The inner loop in `agent_loop` calls `agent_turn` repeatedly until the model produces a text-only response (no tool use), with a `MAX_STEPS` guard (default 20) to prevent runaway loops.
+1. **`main()`** — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
+2. **`run_question()`** — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
+3. **`agent_loop()`** — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
+4. **`agent_turn()`** — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
+5. **`TOOL_REGISTRY`** — maps tool names to handler functions; adding a new tool requires only a handler and a registry entry
 
 ## Tools
 
@@ -62,8 +64,8 @@ The model has six tools. Read-only tools run without confirmation; mutating tool
 ## Key behaviours
 
 - **Streaming** — model responses stream to the terminal as they're generated
-- **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries)
-- **Token tracking** — per-turn and session totals printed after each answer
+- **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
+- **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping)
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
 
 ## Model Names
