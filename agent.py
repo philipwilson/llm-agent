@@ -13,6 +13,7 @@ import os
 import readline
 import subprocess
 import sys
+import time
 
 import anthropic
 
@@ -51,7 +52,8 @@ DEFAULT_MODEL = "sonnet"
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
 MAX_OUTPUT_LINES = 200
-COMMAND_TIMEOUT = 30
+DEFAULT_COMMAND_TIMEOUT = 30
+COMMAND_TIMEOUT = DEFAULT_COMMAND_TIMEOUT
 MAX_STEPS = 20
 MAX_CONVERSATION_TURNS = 40
 DANGEROUS_PATTERNS = [
@@ -537,61 +539,94 @@ TOOL_REGISTRY = {
 }
 
 
+MAX_RETRIES = 3
+RETRY_DELAYS = [1, 2, 4]  # seconds between retries (exponential backoff)
+
+
 def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
-    # Stream the response so text appears as it's generated
+    # Stream the response with retry logic for transient API errors
     content_blocks = []
-    current_text = ""
-    current_tool_input_json = ""
-    current_tool_id = None
-    current_tool_name = None
     printed_text = False
 
-    with client.messages.stream(
-        model=model,
-        max_tokens=65536,
-        system=SYSTEM_PROMPT,
-        tools=TOOLS,
-        messages=messages,
-    ) as stream:
-        for event in stream:
-            if event.type == "content_block_start":
-                if event.content_block.type == "text":
-                    current_text = ""
-                    if not printed_text:
-                        print()  # blank line before model output
-                        printed_text = True
-                elif event.content_block.type == "tool_use":
-                    current_tool_id = event.content_block.id
-                    current_tool_name = event.content_block.name
-                    current_tool_input_json = ""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            content_blocks = []
+            current_text = ""
+            current_tool_input_json = ""
+            current_tool_id = None
+            current_tool_name = None
 
-            elif event.type == "content_block_delta":
-                if event.delta.type == "text_delta":
-                    print(event.delta.text, end="", flush=True)
-                    current_text += event.delta.text
-                elif event.delta.type == "input_json_delta":
-                    current_tool_input_json += event.delta.partial_json
+            with client.messages.stream(
+                model=model,
+                max_tokens=65536,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=messages,
+            ) as stream:
+                for event in stream:
+                    if event.type == "content_block_start":
+                        if event.content_block.type == "text":
+                            current_text = ""
+                            if not printed_text:
+                                print()  # blank line before model output
+                                printed_text = True
+                        elif event.content_block.type == "tool_use":
+                            current_tool_id = event.content_block.id
+                            current_tool_name = event.content_block.name
+                            current_tool_input_json = ""
 
-            elif event.type == "content_block_stop":
-                if current_text:
-                    content_blocks.append({"type": "text", "text": current_text})
-                    current_text = ""
-                if current_tool_id:
-                    tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
-                    content_blocks.append({
-                        "type": "tool_use",
-                        "id": current_tool_id,
-                        "name": current_tool_name,
-                        "input": tool_input,
-                    })
-                    current_tool_id = None
-                    current_tool_input_json = ""
+                    elif event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            print(event.delta.text, end="", flush=True)
+                            current_text += event.delta.text
+                        elif event.delta.type == "input_json_delta":
+                            current_tool_input_json += event.delta.partial_json
 
-        # Get usage from the final message
-        final = stream.get_final_message()
-        if usage_totals is not None and final.usage:
-            usage_totals["input"] += final.usage.input_tokens
-            usage_totals["output"] += final.usage.output_tokens
+                    elif event.type == "content_block_stop":
+                        if current_text:
+                            content_blocks.append({"type": "text", "text": current_text})
+                            current_text = ""
+                        if current_tool_id:
+                            tool_input = json.loads(current_tool_input_json) if current_tool_input_json else {}
+                            content_blocks.append({
+                                "type": "tool_use",
+                                "id": current_tool_id,
+                                "name": current_tool_name,
+                                "input": tool_input,
+                            })
+                            current_tool_id = None
+                            current_tool_name = None
+                            current_tool_input_json = ""
+
+                # Get usage from the final message
+                final = stream.get_final_message()
+                if usage_totals is not None and final.usage:
+                    usage_totals["input"] += final.usage.input_tokens
+                    usage_totals["output"] += final.usage.output_tokens
+
+            break  # success, exit retry loop
+
+        except (anthropic.RateLimitError, anthropic.InternalServerError) as e:
+            if attempt < MAX_RETRIES:
+                delay = RETRY_DELAYS[attempt]
+                print(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
+                time.sleep(delay)
+                # Reset state for retry — any partial text was already printed,
+                # so we can't undo it, but the model will re-generate
+                content_blocks = []
+            else:
+                print(f"\n{red(f'API error after {MAX_RETRIES + 1} attempts: {e}')}")
+                return messages, True  # give up, return to prompt
+
+        except anthropic.APIConnectionError as e:
+            if attempt < MAX_RETRIES:
+                delay = RETRY_DELAYS[attempt]
+                print(f"\n{yellow(f'Connection error: {e}. Retrying in {delay}s...')}")
+                time.sleep(delay)
+                content_blocks = []
+            else:
+                print(f"\n{red(f'Connection error after {MAX_RETRIES + 1} attempts: {e}')}")
+                return messages, True
 
     # End streaming text with a newline if we printed anything
     if printed_text:
@@ -746,8 +781,17 @@ def main():
         metavar="QUESTION",
         help="Run a single question and exit (non-interactive mode)",
     )
+    parser.add_argument(
+        "-t", "--timeout",
+        type=int,
+        default=DEFAULT_COMMAND_TIMEOUT,
+        metavar="SECONDS",
+        help=f"Command timeout in seconds (default: {DEFAULT_COMMAND_TIMEOUT})",
+    )
     args = parser.parse_args()
 
+    global COMMAND_TIMEOUT
+    COMMAND_TIMEOUT = args.timeout
     model = MODELS[args.model]
     client = make_client()
 
