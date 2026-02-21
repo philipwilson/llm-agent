@@ -4,20 +4,24 @@ from llm_agent.tools import (
     read_file,
     list_directory,
     search_files,
+    glob_files,
     read_url,
     write_file,
     edit_file,
     run_command,
+    web_search,
 )
 
 _MODULES = [
     read_file,
     list_directory,
     search_files,
+    glob_files,
     read_url,
     write_file,
     edit_file,
     run_command,
+    web_search,
 ]
 
 TOOLS = [m.SCHEMA for m in _MODULES]
