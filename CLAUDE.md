@@ -110,4 +110,4 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 
 ## Model Names
 
-Vertex AI Anthropic models use bare names without `@date` suffixes: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-6`.
+Vertex AI Anthropic models use bare names without `@date` suffixes: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
