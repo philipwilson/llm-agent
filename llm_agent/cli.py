@@ -211,7 +211,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
 
     while True:
         try:
-            user_input = input(f"{bold('>')} ").strip()
+            user_input = input("\001\033[1m\002>\001\033[0m\002 ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.")
             break
