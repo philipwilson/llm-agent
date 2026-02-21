@@ -76,7 +76,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
 
             with client.messages.stream(
                 model=model,
-                max_tokens=65536,
+                max_tokens=64000 if "haiku" in model else 65536,
                 system=CACHED_SYSTEM,
                 tools=CACHED_TOOLS,
                 messages=cached_msgs,

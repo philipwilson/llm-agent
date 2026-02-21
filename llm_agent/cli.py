@@ -21,7 +21,7 @@ from llm_agent.tools import base
 MODELS = {
     "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-6",
+    "haiku": "claude-haiku-4-5",
 }
 DEFAULT_MODEL = "sonnet"
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
