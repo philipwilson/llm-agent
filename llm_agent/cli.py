@@ -43,7 +43,44 @@ ATTACHMENT_TYPES = {
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
 MAX_STEPS = 20
-MAX_CONVERSATION_TURNS = 40
+CONTEXT_WINDOWS = {
+    "claude-opus-4-6": 200_000,
+    "claude-sonnet-4-6": 200_000,
+    "claude-haiku-4-5": 200_000,
+    "gemini-2.5-flash": 1_000_000,
+    "gemini-3.1-pro-preview": 1_000_000,
+}
+CONTEXT_BUDGET = 0.80
+
+
+def estimate_tokens(messages):
+    """Estimate the token count of a list of messages using chars/4 heuristic."""
+    total_chars = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                total_chars += len(str(block.get("text", "")))
+                total_chars += len(str(block.get("content", "")))
+    return total_chars // 4
+
+
+def trim_conversation(conversation, last_input_tokens, model):
+    """Trim oldest message rounds to keep token usage within context budget."""
+    budget = int(CONTEXT_WINDOWS.get(model, 200_000) * CONTEXT_BUDGET)
+    if last_input_tokens <= budget:
+        return conversation
+    excess = last_input_tokens - budget
+    trimmed = list(conversation)
+    while trimmed and excess > 0:
+        round_end = 1
+        while round_end < len(trimmed) and trimmed[round_end]["role"] != "user":
+            round_end += 1
+        excess -= estimate_tokens(trimmed[:round_end])
+        trimmed = trimmed[round_end:]
+    return trimmed
 
 
 def is_gemini_model(model):
@@ -280,11 +317,17 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             cache_info = ""
             if turn_usage["cache_read"] > 0:
                 cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
+            context_info = ""
+            last_input = turn_usage.get("last_input", 0)
+            if last_input > 0:
+                window = CONTEXT_WINDOWS.get(model, 200_000)
+                remaining_pct = max(0, (window - last_input) / window * 100)
+                context_info = f" | context: {remaining_pct:.0f}% remaining"
             print(dim(
                 f"  [{format_tokens(turn_usage['input'])} in, "
                 f"{format_tokens(turn_usage['output'])} out{cache_info} | "
                 f"session: {format_tokens(session_usage['input'])} in, "
-                f"{format_tokens(session_usage['output'])} out]"
+                f"{format_tokens(session_usage['output'])} out{context_info}]"
             ))
 
         if result is None:
@@ -292,14 +335,14 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             continue
 
         # Keep the conversation history for follow-up questions,
-        # but trim old turns to avoid unbounded context growth.
-        # Keep the most recent turns, always starting with a user message.
+        # but trim old turns to avoid exceeding the model's context window.
         conversation = result
-        if len(conversation) > MAX_CONVERSATION_TURNS:
-            conversation = conversation[-MAX_CONVERSATION_TURNS:]
-            # Ensure we start with a user message
-            while conversation and conversation[0]["role"] != "user":
-                conversation.pop(0)
+        last_input = turn_usage.get("last_input", 0)
+        old_len = len(conversation)
+        conversation = trim_conversation(conversation, last_input, model)
+        if len(conversation) < old_len:
+            removed = old_len - len(conversation)
+            print(dim(f"  (trimmed {removed} old messages to fit context window)"))
 
 
 def setup_delegate(client, model, auto_approve, thinking_level):

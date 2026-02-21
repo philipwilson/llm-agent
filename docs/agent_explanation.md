@@ -70,7 +70,8 @@ This is the top-level module. It handles:
 - **Constants**:
   - `HISTORY_FILE` / `HISTORY_SIZE`: Persistent readline history at `~/.agent_history` (1000 entries).
   - `MAX_STEPS = 20`: Limits tool-use iterations per user question.
-  - `MAX_CONVERSATION_TURNS = 40`: Trims older conversation turns to avoid unbounded context growth.
+  - `CONTEXT_WINDOWS`: Maps model IDs to their context window sizes (200k for Claude, 1M for Gemini).
+  - `CONTEXT_BUDGET = 0.80`: Trim threshold — conversation is trimmed when input tokens exceed 80% of the model's context window.
   - `ATTACHMENT_TYPES`: Maps file extensions to media types for `@filepath` attachments.
   - `DEFAULT_THINKING`: Per-model thinking level defaults (gemini-pro defaults to `high`).
 
@@ -86,7 +87,11 @@ This is the top-level module. It handles:
 
 - **`run_question(client, model, conversation, user_input, ...)`**: Runs a single user question to completion. Parses attachments, selects the right turn function (`agent_turn` or `gemini_agent_turn`), and calls it in a loop until the model produces a final answer or `MAX_STEPS` is reached. Handles Ctrl+C by discarding the partial turn cleanly.
 
-- **`agent_loop(client, model, ...)`**: The interactive REPL. Prints a welcome banner, then repeatedly prompts for input. Handles slash commands (`/clear`, `/model`, `/thinking`, `/version`) and `quit`/`exit`. After each answer, displays per-turn and session-level token usage. Trims conversation history when it exceeds `MAX_CONVERSATION_TURNS`, ensuring the first remaining message is always from the user.
+- **`estimate_tokens(messages)`**: Estimates the token count of a list of messages using a chars/4 heuristic. Used by `trim_conversation()` to gauge how many tokens removing a round of messages would reclaim.
+
+- **`trim_conversation(conversation, last_input_tokens, model)`**: Removes oldest complete message rounds (a user message plus all following assistant/tool messages) until the estimated token removal covers the excess above the context budget. Only trims when `last_input_tokens` exceeds 80% of the model's context window.
+
+- **`agent_loop(client, model, ...)`**: The interactive REPL. Prints a welcome banner, then repeatedly prompts for input. Handles slash commands (`/clear`, `/model`, `/thinking`, `/version`) and `quit`/`exit`. After each answer, displays per-turn and session-level token usage. Trims conversation history based on actual token usage relative to the model's context window (via `trim_conversation`).
 
 - **`main()`**: Parses CLI arguments:
   - `-m` / `--model`: Choose model (default: `sonnet`)
@@ -180,7 +185,7 @@ The nine tools:
 | **Tool confirmation for writes** | `write_file` and `edit_file` always show a diff-like preview and require confirmation — no auto-approve bypass. |
 | **Ripgrep with grep fallback** | `search_files` prefers `rg` for speed and `.gitignore` awareness, but gracefully degrades. |
 | **Working directory tracking** | `ShellState` tracks `cwd` across commands so `cd` in one command persists to the next. All file tools resolve relative paths against it. |
-| **Conversation trimming** | Prevents unbounded context window growth in long sessions, while maintaining coherent history. |
+| **Token-budget conversation trimming** | Uses actual input token counts reported by the API to trim conversation history when it exceeds 80% of the model's context window, rather than using a fixed message count. |
 | **Partial turn discard on Ctrl-C** | Interrupted turns don't leave broken tool-result pairs in the conversation. |
 | **Gemini thought preservation** | Raw Gemini parts are stashed alongside Anthropic-format blocks so thought signatures are faithfully replayed on subsequent turns. |
 

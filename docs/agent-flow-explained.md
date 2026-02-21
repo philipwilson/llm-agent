@@ -119,7 +119,7 @@ So a single user question can trigger many LLM calls, each one seeing the growin
 
 After `run_question` returns, the updated `messages` list is saved back into the `conversation` variable in `agent_loop` (line 758). This means the **next** user question will include all prior context.
 
-To prevent unbounded growth, the conversation is trimmed to the most recent `MAX_CONVERSATION_TURNS` (40) messages, always starting with a `"user"` message (lines 759–763).
+To prevent unbounded growth, the conversation is trimmed based on actual token usage. After each question, `trim_conversation()` checks whether the last API call's input token count exceeded 80% of the model's context window. If so, it removes the oldest complete message rounds (user + assistant/tool messages) until the estimated token savings cover the excess.
 
 The user can also type `/clear` to reset the conversation to empty.
 

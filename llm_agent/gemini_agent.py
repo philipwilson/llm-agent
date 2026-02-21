@@ -177,6 +177,7 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     if usage_totals is not None and last_usage:
         usage_totals["input"] += getattr(last_usage, "prompt_token_count", 0) or 0
         usage_totals["output"] += getattr(last_usage, "candidates_token_count", 0) or 0
+        usage_totals["last_input"] = getattr(last_usage, "prompt_token_count", 0) or 0
 
     # No function calls → model is done
     if not function_calls:
