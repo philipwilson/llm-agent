@@ -194,12 +194,12 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
     # Separate text blocks from tool_use blocks
     tool_uses = [b for b in content_blocks if b["type"] == "tool_use"]
 
+    # Append the full assistant response to messages
+    messages.append({"role": "assistant", "content": content_blocks})
+
     # If no tool use, the model is done
     if not tool_uses:
         return messages, True  # done
-
-    # Append the full assistant response to messages
-    messages.append({"role": "assistant", "content": content_blocks})
 
     # Process each tool use
     tool_results = []

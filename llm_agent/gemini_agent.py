@@ -179,10 +179,6 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
         usage_totals["output"] += getattr(last_usage, "candidates_token_count", 0) or 0
         usage_totals["last_input"] = getattr(last_usage, "prompt_token_count", 0) or 0
 
-    # No function calls → model is done
-    if not function_calls:
-        return messages, True
-
     # Build Anthropic-format content blocks for internal use (tool dispatch),
     # but also stash raw_parts for faithful Gemini replay on next turn.
     content_blocks = []
@@ -201,6 +197,10 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
         "content": content_blocks,
         "_gemini_parts": raw_parts,
     })
+
+    # No function calls → model is done
+    if not function_calls:
+        return messages, True
 
     # Dispatch tool calls (same logic as agent_turn)
     tool_uses = [b for b in content_blocks if b["type"] == "tool_use"]
