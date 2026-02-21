@@ -1,6 +1,6 @@
-# Explanation of `agent.py`
+# Explanation of `llm-agent`
 
-`agent.py` is a **toy interactive CLI agent** that uses Anthropic's Claude model to answer user questions by running Unix shell commands and file operations. It implements an agentic tool-use loop: the user asks a question, Claude decides which tools to call, the script executes them locally, feeds the results back to Claude, and repeats until Claude has enough information to give a final answer.
+`llm-agent` is a **toy interactive CLI agent** that uses LLMs to answer user questions by running Unix shell commands, exploring the filesystem, and searching the web. It implements an agentic tool-use loop: the user asks a question, the model decides which tools to call, the agent executes them locally, feeds the results back, and repeats until the model has enough information to give a final answer. Supports Anthropic Claude (direct API and Vertex AI) and Google Gemini models.
 
 ---
 
@@ -17,7 +17,7 @@ User Question
        │
        ▼
 ┌──────────────────┐     ┌──────────────┐
-│  Claude API Call  │────►│ Tool Use?    │
+│  API Call         │────►│ Tool Use?    │
 │  (streaming)      │     │  yes / no    │
 └──────────────────┘     └──────┬───────┘
                                 │
@@ -25,111 +25,145 @@ User Question
                  │ No                          │ Yes
                  ▼                             ▼
           Print final answer        Execute tool(s) locally
-                                   Feed results back to Claude
+                                   Feed results back to model
                                    (loop again)
+```
+
+The code was originally a single `agent.py` file but has been refactored into a proper Python package (`llm_agent/`) with separate modules for the CLI, each provider's agent turn logic, formatting, and individual tools.
+
+---
+
+## Package Structure
+
+```
+pyproject.toml              — package metadata and entry point
+llm_agent/
+    __init__.py             — VERSION constant
+    cli.py                  — main(), arg parsing, REPL, run_question()
+    agent.py                — Anthropic agent_turn(), streaming, caching, retry
+    gemini_agent.py         — Gemini gemini_agent_turn(), format conversion
+    formatting.py           — ANSI colour helpers, output truncation, token formatting
+    system_prompt.txt       — system prompt (editable without touching Python)
+    tools/
+        __init__.py         — collects TOOLS list + TOOL_REGISTRY from modules
+        base.py             — ShellState, _resolve(), confirm_edit(), COMMAND_TIMEOUT
+        read_file.py        — SCHEMA + handle
+        list_directory.py   — SCHEMA + handle
+        search_files.py     — SCHEMA + handle
+        glob_files.py       — SCHEMA + handle
+        read_url.py         — SCHEMA + handle
+        web_search.py       — SCHEMA + handle
+        write_file.py       — SCHEMA + handle
+        edit_file.py        — SCHEMA + handle
+        run_command.py      — SCHEMA + handle + NEEDS_CONFIRM
 ```
 
 ---
 
-## Major Sections
+## Module-by-Module Walkthrough
 
-### 1. Configuration & Constants (lines 1–64)
+### 1. `cli.py` — Entry Point, Arg Parsing, REPL
 
-- **Imports**: `argparse`, `subprocess`, `json`, `os`, `readline`, and the `anthropic` SDK.
-- **ANSI color helpers**: `bold`, `dim`, `red`, `green`, `yellow`, `cyan` — used throughout for pretty terminal output. Respects `NO_COLOR` / `FORCE_COLOR` env vars and whether stdout is a TTY.
-- **Model aliases**: Maps short names (`opus`, `sonnet`, `haiku`) to full Anthropic model IDs. Default is `sonnet`.
-- **Safety/limit constants**:
-  - `HISTORY_FILE` / `HISTORY_SIZE`: Persistent readline history at `~/.agent_history`.
-  - `MAX_OUTPUT_LINES = 200`: Truncates long command output.
-  - `COMMAND_TIMEOUT = 30`: Kills commands that take longer than 30 seconds.
+This is the top-level module. It handles:
+
+- **Model aliases**: Maps short names (`opus`, `sonnet`, `haiku`, `gemini-flash`, `gemini-pro`) to full model IDs. Default is `sonnet`.
+- **Constants**:
+  - `HISTORY_FILE` / `HISTORY_SIZE`: Persistent readline history at `~/.agent_history` (1000 entries).
   - `MAX_STEPS = 20`: Limits tool-use iterations per user question.
   - `MAX_CONVERSATION_TURNS = 40`: Trims older conversation turns to avoid unbounded context growth.
-  - `DANGEROUS_PATTERNS`: A list of shell substrings (e.g., `rm `, `mkfs`, `dd `, `shutdown`) that always require manual confirmation even in auto-approve mode.
+  - `ATTACHMENT_TYPES`: Maps file extensions to media types for `@filepath` attachments.
+  - `DEFAULT_THINKING`: Per-model thinking level defaults (gemini-pro defaults to `high`).
 
-### 2. System Prompt & Tool Definitions (lines 66–238)
+- **`parse_attachments(text)`**: Scans user input for `@filepath` tokens, base64-encodes recognised file types (images, PDFs), and returns multimodal content blocks in Anthropic format. Only triggers on `@` at the start of a word (so `user@email.com` is left alone). Reports an error if the file is missing or has an unsupported extension.
 
-- **`SYSTEM_PROMPT`**: Instructs Claude that it is a Unix CLI assistant with access to six tools, and provides usage guidelines (prefer dedicated tools, prefer read-only commands, don't guess, etc.).
-- **`TOOLS`**: A list of six tool definitions in Anthropic's tool-use JSON schema format:
+- **`setup_readline()`**: Loads persistent input history and registers an `atexit` handler to save it on exit.
 
-| Tool | Purpose |
-|------|---------|
-| `read_file` | Read file contents with line numbers, optional offset/limit |
-| `list_directory` | List directory entries with types and human-readable sizes |
-| `search_files` | Regex search across files (uses `rg` or falls back to `grep`) |
-| `write_file` | Create or overwrite a file (requires user confirmation) |
-| `edit_file` | Find-and-replace a unique string in a file (requires user confirmation) |
-| `run_command` | Run an arbitrary shell command (requires confirmation; dangerous commands always require it) |
+- **`make_client(model)`**: Auto-detects the backend based on the model and environment:
+  - Gemini models → `google-genai` SDK with `GOOGLE_API_KEY`
+  - `ANTHROPIC_API_KEY` set → direct Anthropic API
+  - `ANTHROPIC_VERTEX_PROJECT_ID` set → Anthropic via Google Vertex AI
+  - Otherwise exits with an error
 
-### 3. Client Setup (lines 241–265)
+- **`run_question(client, model, conversation, user_input, ...)`**: Runs a single user question to completion. Parses attachments, selects the right turn function (`agent_turn` or `gemini_agent_turn`), and calls it in a loop until the model produces a final answer or `MAX_STEPS` is reached. Handles Ctrl+C by discarding the partial turn cleanly.
 
-- **`setup_readline()`**: Loads persistent input history from `~/.agent_history` and registers an `atexit` handler to save it on exit.
-- **`make_client()`**: Auto-detects the backend:
-  - If `ANTHROPIC_API_KEY` is set → uses the direct Anthropic API.
-  - Else if `ANTHROPIC_VERTEX_PROJECT_ID` is set → uses Google Vertex AI (defaults to `us-east5` region).
-  - Otherwise exits with an error message.
+- **`agent_loop(client, model, ...)`**: The interactive REPL. Prints a welcome banner, then repeatedly prompts for input. Handles slash commands (`/clear`, `/model`, `/thinking`, `/version`) and `quit`/`exit`. After each answer, displays per-turn and session-level token usage. Trims conversation history when it exceeds `MAX_CONVERSATION_TURNS`, ensuring the first remaining message is always from the user.
 
-### 4. Tool Handler Functions (lines 268–503)
+- **`main()`**: Parses CLI arguments:
+  - `-m` / `--model`: Choose model (default: `sonnet`)
+  - `-y` / `--yolo`: Auto-approve safe commands
+  - `-c QUESTION`: Single-shot mode (non-interactive, prints token stats to stderr)
+  - `-t` / `--timeout`: Command timeout in seconds (default: 30)
+  - `--thinking`: Thinking level for Gemini models (`low`/`medium`/`high`)
 
-Each tool has a corresponding Python function that performs the actual work:
+  Then creates the API client and dispatches to single-shot or interactive mode.
 
-- **`truncate(text, max_lines)`**: Keeps the first and last half of lines, omitting the middle, to keep output within `MAX_OUTPUT_LINES`.
+### 2. `agent.py` — Anthropic Streaming & Tool Dispatch
 
-- **`run_command(command)`**: Runs a shell command via `subprocess.run()` with a 30s timeout. Returns combined stdout/stderr or an error/timeout message.
+**`agent_turn(client, model, messages, auto_approve, usage_totals)`** handles a single Anthropic API call:
 
-- **`handle_read_file(params)`**: Opens a file, reads all lines, selects the requested range (`offset` / `limit`), and returns them with line numbers prefixed.
-
-- **`handle_list_directory(params)`**: Lists directory contents using `os.listdir()`. Shows directories with a trailing `/`, symlinks with `->`, and files with human-readable sizes (B/k/M). Hidden files filtered unless `hidden=True`.
-
-- **`handle_search_files(params)`**: Tries `rg` (ripgrep) first with `--glob` support; falls back to `grep -rn` if ripgrep isn't installed. Caps results at `max_results` (default 50).
-
-- **`handle_write_file(params)`**: Shows a preview of the file to be written (first/last 5 lines if long), asks the user for Y/n confirmation, then writes.
-
-- **`handle_edit_file(params)`**: Reads the file, verifies the `old_string` exists exactly once, shows a red/green diff preview, asks for confirmation, then does a single `str.replace()`.
-
-- **`confirm(command, description, auto_approve)`**: The confirmation prompt for `run_command`. In auto-approve mode (`-y`), safe commands are auto-approved; dangerous ones (matching `DANGEROUS_PATTERNS`) still require manual confirmation.
-
-- **`handle_run_command(params, auto_approve)`**: Prints the command, calls `confirm()`, and if approved, runs it.
-
-### 5. Tool Registry (lines 506–537)
-
-A dictionary mapping tool names to their handlers, optional log functions (for printing what's being done), and a flag for whether the handler needs the `auto_approve` argument. This cleanly decouples tool dispatch from the agent loop.
-
-### 6. Agent Turn — Streaming & Tool Execution (lines 540–638)
-
-**`agent_turn(client, model, messages, auto_approve, usage_totals)`** handles a single Claude API call:
-
-1. **Streams the response** using `client.messages.stream()`, so text appears in real-time.
-2. **Collects content blocks** as they arrive:
+1. **Prompt caching**: The system prompt, tool definitions, and conversation prefix all have `cache_control` breakpoints. This means unchanged portions are cached across successive API calls within a question, reducing cost and latency.
+2. **Streams the response** using `client.messages.stream()`, so text appears in real-time.
+3. **Collects content blocks** as they arrive:
    - `text` blocks are printed immediately to the terminal.
-   - `tool_use` blocks have their JSON input accumulated incrementally.
-3. **Tracks token usage** from the final message.
-4. **If no tool calls** → returns `done=True` (the model gave a final answer).
-5. **If tool calls exist**:
+   - `tool_use` blocks have their JSON input accumulated incrementally from `input_json_delta` events.
+4. **Retry logic**: Retries up to 3 times (with exponential backoff: 1s, 2s, 4s) on `RateLimitError`, `InternalServerError`, and `APIConnectionError`.
+5. **Tracks token usage** from the final message, including cache read/creation stats.
+6. **If no tool calls** → returns `done=True` (the model gave a final answer).
+7. **If tool calls exist**:
    - Appends the assistant's response to the message history.
    - Executes each tool via the `TOOL_REGISTRY`.
    - Appends tool results as a `user` message (per Anthropic's API convention).
    - Returns `done=False` so the loop continues.
 
-### 7. Agent Loop — The Main REPL (lines 649–714)
+### 3. `gemini_agent.py` — Gemini Streaming & Format Conversion
 
-**`agent_loop(client, model, auto_approve)`** is the outer interactive loop:
+Since messages are stored internally in Anthropic format, this module converts at the API boundary:
 
-1. Prints a welcome banner with the model name and mode.
-2. Repeatedly prompts the user for input (`>` prompt).
-3. For each user message:
-   - Appends it to the `conversation` history.
-   - Enters an **inner loop** calling `agent_turn()` until Claude produces a final text answer (no tool calls) or `MAX_STEPS` is reached.
-   - Tracks and displays per-turn and per-session token usage.
-   - On `KeyboardInterrupt`, discards the partial turn (doesn't corrupt conversation history).
-4. **Conversation trimming**: After each turn, if history exceeds `MAX_CONVERSATION_TURNS`, it trims from the front, ensuring the first remaining message is from the user (so the API doesn't receive an orphaned assistant/tool message).
+- **`_convert_tools()`**: Converts Anthropic tool schemas to Gemini `FunctionDeclaration` objects.
+- **`_to_gemini_contents()`**: Converts Anthropic-format messages to Gemini `Content` objects:
+  - `role: "assistant"` → `role: "model"`
+  - `tool_use` blocks → `FunctionCall` parts
+  - `tool_result` blocks → `FunctionResponse` parts (tool name stashed in `_name` field)
+  - Image/document blocks → decoded from base64 to raw bytes via `Part.from_bytes()`
+  - Raw Gemini parts (with thought signatures) are replayed directly when available.
 
-### 8. Entry Point (lines 716–738)
+- **`gemini_agent_turn()`**: Same contract as `agent_turn()`. Adds support for a `thinking_level` parameter (`low`/`medium`/`high`) that controls Gemini's reasoning depth. Same retry logic pattern (3 retries with backoff). Stashes raw Gemini parts alongside Anthropic-format blocks so thought signatures are preserved across turns.
 
-**`main()`** parses CLI arguments:
-- `-m` / `--model`: Choose `opus`, `sonnet`, or `haiku` (default: `sonnet`).
-- `-y` / `--yolo`: Auto-approve mode — safe commands run without confirmation; dangerous ones still ask.
+### 4. `formatting.py` — Colour Helpers & Output Formatting
 
-Then sets up readline, creates the API client, and enters `agent_loop()`.
+- **ANSI wrappers**: `bold`, `dim`, `red`, `green`, `yellow`, `cyan` — each wraps text in escape codes. Respects `NO_COLOR` / `FORCE_COLOR` env vars and TTY detection.
+- **`truncate(text, max_lines)`**: Keeps the first and last half of lines (default 200 total), omitting the middle with a count of omitted lines.
+- **`format_tokens(n)`**: Formats token counts as `1.2k`, `3.4M`, etc.
+
+### 5. `tools/` — One File Per Tool
+
+Each tool module exports:
+- `SCHEMA` — Anthropic tool-use JSON schema (name, description, input_schema)
+- `handle(params)` — the implementation function
+- `LOG` (optional) — a function that prints what the tool is doing
+- `NEEDS_CONFIRM` (optional) — set to `True` for mutating tools
+
+`tools/__init__.py` auto-collects these into `TOOLS` (schema list) and `TOOL_REGISTRY` (dispatch dict). Adding a new tool requires creating a module file and adding one import line.
+
+**`tools/base.py`** provides shared infrastructure:
+- **`ShellState`**: Tracks the working directory across `run_command` invocations. Appends `echo "__CWD__:$(pwd)"` to each command and parses the result to update `cwd`.
+- **`_resolve(path)`**: Resolves relative paths against the shell's working directory. Used by all file-based tools.
+- **`confirm_edit(prompt_lines)`**: Shows a preview and prompts `Apply? [Y/n]`.
+- **`COMMAND_TIMEOUT`**: Default 30s, overridable via `-t`.
+
+The nine tools:
+
+| Tool | Type | Purpose |
+|------|------|---------|
+| `read_file` | Read-only | Read file contents with line numbers, optional `offset`/`limit` paging |
+| `list_directory` | Read-only | List directory entries with type indicators and file sizes |
+| `search_files` | Read-only | Regex search over file contents using ripgrep (falls back to grep) |
+| `glob_files` | Read-only | Find files matching a glob pattern recursively via `glob.glob()` |
+| `read_url` | Read-only | Fetch a web page via curl, convert HTML to plain text via lynx/w3m (regex fallback) |
+| `web_search` | Read-only | Search the web via DuckDuckGo HTML (no API key needed) |
+| `write_file` | Mutating | Create or overwrite a file (shows preview, requires confirmation) |
+| `edit_file` | Mutating | Targeted find-and-replace (old_string must match exactly once, shows diff) |
+| `run_command` | Mutating | Arbitrary shell command (requires confirmation; dangerous patterns always require it even in YOLO mode) |
 
 ---
 
@@ -137,26 +171,48 @@ Then sets up readline, creates the API client, and enters `agent_loop()`.
 
 | Decision | Rationale |
 |----------|-----------|
-| **Streaming output** | Text appears as Claude generates it, giving a responsive feel. |
+| **Multi-provider support** | Anthropic (direct + Vertex AI) and Gemini, selectable at runtime via `-m`. Messages stored in Anthropic format internally; Gemini module converts at the boundary. |
+| **One file per tool** | Each tool is self-contained with its own schema and handler. Adding a tool is one file + one import line. |
+| **Streaming output** | Text appears as the model generates it, giving a responsive feel. |
+| **Prompt caching** | System prompt, tools, and conversation prefix are cached across API calls to reduce cost and latency (Anthropic only). |
+| **Retry with backoff** | Transient API errors (rate limits, server errors, connection issues) retry up to 3 times with exponential backoff. |
 | **Dangerous command detection** | Simple substring matching against `DANGEROUS_PATTERNS` ensures destructive commands always need human approval, even in YOLO mode. |
 | **Tool confirmation for writes** | `write_file` and `edit_file` always show a diff-like preview and require confirmation — no auto-approve bypass. |
-| **Ripgrep with grep fallback** | Prefers `rg` for speed and `.gitignore` awareness, but gracefully degrades. |
+| **Ripgrep with grep fallback** | `search_files` prefers `rg` for speed and `.gitignore` awareness, but gracefully degrades. |
+| **Working directory tracking** | `ShellState` tracks `cwd` across commands so `cd` in one command persists to the next. All file tools resolve relative paths against it. |
 | **Conversation trimming** | Prevents unbounded context window growth in long sessions, while maintaining coherent history. |
 | **Partial turn discard on Ctrl-C** | Interrupted turns don't leave broken tool-result pairs in the conversation. |
+| **Gemini thought preservation** | Raw Gemini parts are stashed alongside Anthropic-format blocks so thought signatures are faithfully replayed on subsequent turns. |
 
 ---
 
 ## Usage
 
 ```bash
-# Using the direct Anthropic API
-export ANTHROPIC_API_KEY="sk-..."
-python agent.py                    # interactive, confirm mode, sonnet
-python agent.py -m opus            # use opus model
-python agent.py -y                 # YOLO mode (auto-approve safe commands)
+pip install -e .              # base install
+pip install -e '.[gemini]'    # with Gemini support
+pip install -e '.[all]'       # all providers
 
-# Using Google Vertex AI
+# Anthropic (direct API)
+export ANTHROPIC_API_KEY="sk-..."
+llm-agent                              # interactive, confirm mode, sonnet
+llm-agent -m opus                      # use opus
+llm-agent -y                           # YOLO mode (auto-approve safe commands)
+
+# Anthropic (Vertex AI)
 export ANTHROPIC_VERTEX_PROJECT_ID="my-project"
-export CLOUD_ML_REGION="us-east5"  # optional, defaults to us-east5
-python agent.py
+export CLOUD_ML_REGION="us-east5"      # optional
+llm-agent
+
+# Gemini
+export GOOGLE_API_KEY="your-key"
+llm-agent -m gemini-pro --thinking high
+
+# Single-shot mode
+llm-agent -c "how much disk space is free?"
+llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
+
+# Attach images or PDFs
+llm-agent -c "@photo.png what's in this image?"
+llm-agent -c "@report.pdf summarize this document"
 ```
