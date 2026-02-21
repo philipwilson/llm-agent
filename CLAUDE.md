@@ -48,8 +48,20 @@ llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
 pyproject.toml          — package metadata and entry point
 llm_agent/
     __init__.py         — VERSION and package metadata
-    cli.py              — main module (agent loop, tools, streaming)
+    cli.py              — main, arg parsing, REPL, run_question
+    agent.py            — agent_turn, streaming, caching, retry logic
+    formatting.py       — colour helpers, output truncation, token formatting
     system_prompt.txt   — system prompt (edit without touching Python)
+    tools/
+        __init__.py     — collects TOOLS list + TOOL_REGISTRY from modules
+        base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
+        read_file.py    — SCHEMA + handle
+        list_directory.py — SCHEMA + handle
+        search_files.py — SCHEMA + handle
+        read_url.py     — SCHEMA + handle
+        write_file.py   — SCHEMA + handle
+        edit_file.py    — SCHEMA + handle
+        run_command.py  — SCHEMA + handle + NEEDS_CONFIRM
 ```
 
 - Package name: `llm-agent` (import name: `llm_agent`)
@@ -57,13 +69,20 @@ llm_agent/
 
 ## Architecture
 
-The agent logic is in `llm_agent/cli.py`, with the system prompt in `llm_agent/system_prompt.txt`. The key flow:
+The agent is split across several modules:
 
-1. **`main()`** — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
-2. **`run_question()`** — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
-3. **`agent_loop()`** — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
-4. **`agent_turn()`** — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
-5. **`TOOL_REGISTRY`** — maps tool names to handler functions; adding a new tool requires only a handler and a registry entry
+- **`cli.py`** — entry point, arg parsing, REPL loop
+- **`agent.py`** — streaming API calls, prompt caching, retry logic
+- **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
+- **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`
+
+The key flow:
+
+1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
+2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
+3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
+4. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
+5. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
 
 ## Tools
 
