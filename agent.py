@@ -899,7 +899,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
 def agent_loop(client, model, auto_approve=False):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question, /clear to reset, /version for info, or 'quit' to exit.\n"))
+    print(dim("Type a question, /clear, /model, /version, or 'quit'.\n"))
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
@@ -922,6 +922,17 @@ def agent_loop(client, model, auto_approve=False):
             continue
         if user_input.strip() == "/version":
             print(dim(f"agent.py v{VERSION} (model: {model})"))
+            continue
+        if user_input.strip().startswith("/model"):
+            parts = user_input.strip().split()
+            if len(parts) == 1:
+                print(dim(f"(model: {model})"))
+                print(dim(f"  available: {', '.join(MODELS.keys())}"))
+            elif parts[1] in MODELS:
+                model = MODELS[parts[1]]
+                print(dim(f"(switched to {model})"))
+            else:
+                print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
             continue
 
         result, turn_usage = run_question(
