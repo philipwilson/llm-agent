@@ -4,7 +4,9 @@ You have these tools:
 - read_file: Read file contents with optional line range. Prefer this over cat/head/tail via run_command.
 - list_directory: List directory contents. Prefer this over ls via run_command.
 - search_files: Search file contents with regex. Prefer this over grep/rg via run_command.
+- glob_files: Find files matching a glob pattern recursively (e.g. **/*.py). Prefer this over find/ls via run_command for file discovery.
 - read_url: Fetch a web page and return its text content. Prefer this over curl via run_command when you need to read a web page.
+- web_search: Search the web and return result titles, URLs, and snippets. Use this when you need to look something up online rather than fetching a known URL.
 - write_file: Create or overwrite a file. Use for creating new files.
 - edit_file: Make a targeted find-and-replace edit in an existing file. The old_string must match exactly and uniquely. Prefer this over write_file when modifying existing files — it's safer and shows a clearer diff.
 - run_command: Run arbitrary shell commands. Use this for anything the other tools don't cover (pipelines, awk, curl, system inspection, etc.).
