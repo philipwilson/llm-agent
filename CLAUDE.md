@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A single-file Python agent loop (`agent.py`) that uses Claude to answer user questions by exploring the filesystem and running Unix commands. Supports both the direct Anthropic API and Google Vertex AI.
+A Python agent loop that uses Claude to answer user questions by exploring the filesystem and running Unix commands. Supports both the direct Anthropic API and Google Vertex AI.
+
+## Installation
+
+```bash
+pip install -e .              # editable install
+pip install -e '.[vertex]'    # with Vertex AI support
+```
 
 ## Running
 
@@ -19,27 +26,38 @@ export CLOUD_ML_REGION="us-east5"  # optional, defaults to us-east5
 # If both are set, ANTHROPIC_API_KEY takes priority.
 
 # Run with default model (sonnet)
-python agent.py
+llm-agent
 
 # Select model
-python agent.py -m opus
-python agent.py -m haiku
-python agent.py -m sonnet
+llm-agent -m opus
+llm-agent -m haiku
+llm-agent -m sonnet
 
 # Auto-approve safe commands
-python agent.py -y
-python agent.py --yolo
+llm-agent -y
+llm-agent --yolo
 
 # Single-shot mode (non-interactive)
-python agent.py -c "how much disk space is free?"
-python agent.py -c "what's in /etc/hosts?" -m haiku --yolo
+llm-agent -c "how much disk space is free?"
+llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
 ```
 
-Requires `anthropic` pip package (add `[vertex]` extra for Vertex AI support).
+## Package Structure
+
+```
+pyproject.toml          — package metadata and entry point
+llm_agent/
+    __init__.py         — VERSION and package metadata
+    cli.py              — main module (agent loop, tools, streaming)
+    system_prompt.txt   — system prompt (edit without touching Python)
+```
+
+- Package name: `llm-agent` (import name: `llm_agent`)
+- Console entry point: `llm-agent` command
 
 ## Architecture
 
-The agent logic is in `agent.py`, with the system prompt in `system_prompt.txt` (edit the prompt without touching Python). The key flow:
+The agent logic is in `llm_agent/cli.py`, with the system prompt in `llm_agent/system_prompt.txt`. The key flow:
 
 1. **`main()`** — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
 2. **`run_question()`** — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling

@@ -17,6 +17,8 @@ import time
 
 import anthropic
 
+from llm_agent import VERSION
+
 
 # --- Colour helpers (ANSI) ---
 
@@ -42,8 +44,6 @@ red     = _ansi("31")
 green   = _ansi("32")
 yellow  = _ansi("33")
 cyan    = _ansi("36")
-
-VERSION = "0.1.0"
 
 MODELS = {
     "opus": "claude-opus-4-6",
@@ -458,7 +458,7 @@ def handle_read_url(params):
                 "curl", "-sL",
                 "--max-filesize", str(MAX_DOWNLOAD_BYTES),
                 "--max-time", str(WEB_TIMEOUT),
-                "-H", "User-Agent: agent.py/1.0",
+                "-H", "User-Agent: llm-agent/1.0",
                 "-w", "\n__STATUS__:%{http_code}\n__URL__:%{url_effective}",
                 url,
             ],
@@ -921,7 +921,7 @@ def agent_loop(client, model, auto_approve=False):
             print(dim("(conversation cleared)"))
             continue
         if user_input.strip() == "/version":
-            print(dim(f"agent.py v{VERSION} (model: {model})"))
+            print(dim(f"llm-agent v{VERSION} (model: {model})"))
             continue
         if user_input.strip().startswith("/model"):
             parts = user_input.strip().split()
