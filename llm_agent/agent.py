@@ -162,7 +162,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                     cache_create = getattr(final.usage, "cache_creation_input_tokens", 0) or 0
                     usage_totals["cache_read"] = usage_totals.get("cache_read", 0) + cache_read
                     usage_totals["cache_create"] = usage_totals.get("cache_create", 0) + cache_create
-                    usage_totals["last_input"] = final.usage.input_tokens
+                    usage_totals["last_input"] = final.usage.input_tokens + cache_read + cache_create
 
             break  # success, exit retry loop
 
