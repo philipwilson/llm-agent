@@ -28,7 +28,10 @@ SCHEMA = {
 }
 
 
-def handle(params):
+NEEDS_CONFIRM = True
+
+
+def handle(params, auto_approve=False):
     path = _resolve(params.get("path", ""))
     content = params.get("content", "")
     exists = os.path.exists(path)
@@ -47,7 +50,11 @@ def handle(params):
         for line in lines[-5:]:
             preview.append(f"  {green('+' + ' ' + line)}")
 
-    if not confirm_edit(preview):
+    if auto_approve:
+        for line in preview:
+            print(line)
+        print(f"  {dim('(auto-approved)')}")
+    elif not confirm_edit(preview):
         return "(user declined to write this file)"
 
     try:

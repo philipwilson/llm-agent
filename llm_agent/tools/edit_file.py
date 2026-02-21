@@ -1,6 +1,6 @@
 """edit_file tool: targeted find-and-replace in an existing file."""
 
-from llm_agent.formatting import bold, cyan, red, green
+from llm_agent.formatting import bold, cyan, dim, red, green
 from llm_agent.tools.base import _resolve, confirm_edit
 
 SCHEMA = {
@@ -31,7 +31,10 @@ SCHEMA = {
 }
 
 
-def handle(params):
+NEEDS_CONFIRM = True
+
+
+def handle(params, auto_approve=False):
     path = _resolve(params.get("path", ""))
     old_string = params.get("old_string", "")
     new_string = params.get("new_string", "")
@@ -54,7 +57,11 @@ def handle(params):
     for line in new_string.splitlines():
         preview.append(f"  {green('+' + ' ' + line)}")
 
-    if not confirm_edit(preview):
+    if auto_approve:
+        for line in preview:
+            print(line)
+        print(f"  {dim('(auto-approved)')}")
+    elif not confirm_edit(preview):
         return "(user declined this edit)"
 
     updated = original.replace(old_string, new_string, 1)

@@ -27,7 +27,26 @@ CACHED_SYSTEM = [{
     "cache_control": CACHE_CONTROL,
 }]
 
-CACHED_TOOLS = [*TOOLS[:-1], {**TOOLS[-1], "cache_control": CACHE_CONTROL}]
+# Lazy tool cache — rebuilt on first use or after invalidation.
+_CACHED_TOOLS = None
+
+
+def _build_cached_tools():
+    global _CACHED_TOOLS
+    _CACHED_TOOLS = [*TOOLS[:-1], {**TOOLS[-1], "cache_control": CACHE_CONTROL}]
+    return _CACHED_TOOLS
+
+
+def invalidate_tool_cache():
+    """Force the tool cache to rebuild on next use."""
+    global _CACHED_TOOLS
+    _CACHED_TOOLS = None
+
+
+def _get_cached_tools():
+    if _CACHED_TOOLS is None:
+        return _build_cached_tools()
+    return _CACHED_TOOLS
 
 
 def _cache_messages(messages):
@@ -60,7 +79,25 @@ def _cache_messages(messages):
     return msgs
 
 
-def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
+def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
+               tools=None, tool_registry=None, system_prompt=None):
+    # Resolve tools, registry, and system prompt (use defaults if not provided)
+    if tools is not None:
+        effective_tools = [*tools[:-1], {**tools[-1], "cache_control": CACHE_CONTROL}] if tools else []
+        effective_registry = tool_registry if tool_registry is not None else TOOL_REGISTRY
+    else:
+        effective_tools = _get_cached_tools()
+        effective_registry = TOOL_REGISTRY
+
+    if system_prompt is not None:
+        effective_system = [{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": CACHE_CONTROL,
+        }]
+    else:
+        effective_system = CACHED_SYSTEM
+
     # Stream the response with retry logic for transient API errors
     content_blocks = []
     printed_text = False
@@ -77,8 +114,8 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
             with client.messages.stream(
                 model=model,
                 max_tokens=64000 if "haiku" in model else 65536,
-                system=CACHED_SYSTEM,
-                tools=CACHED_TOOLS,
+                system=effective_system,
+                tools=effective_tools,
                 messages=cached_msgs,
             ) as stream:
                 for event in stream:
@@ -169,7 +206,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
         name = tool_use["name"]
         params = tool_use["input"]
 
-        entry = TOOL_REGISTRY.get(name)
+        entry = effective_registry.get(name)
         if entry is None:
             output = f"(unknown tool: {name})"
         else:

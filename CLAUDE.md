@@ -64,13 +64,14 @@ llm-agent -c "@a.png @b.png compare these two images"
 pyproject.toml          — package metadata and entry point
 llm_agent/
     __init__.py         — VERSION and package metadata
-    cli.py              — main, arg parsing, REPL, run_question
+    cli.py              — main, arg parsing, REPL, run_question, setup_delegate
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
+    agents.py           — subagent definitions, custom agent loading, run_subagent
     formatting.py       — colour helpers, output truncation, token formatting
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
-        __init__.py     — collects TOOLS list + TOOL_REGISTRY from modules
+        __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set()
         base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
         list_directory.py — SCHEMA + handle
@@ -81,6 +82,7 @@ llm_agent/
         write_file.py   — SCHEMA + handle
         edit_file.py    — SCHEMA + handle
         run_command.py  — SCHEMA + handle + NEEDS_CONFIRM
+        delegate.py     — SCHEMA + handle (subagent delegation)
 ```
 
 - Package name: `llm-agent` (import name: `llm_agent`)
@@ -106,7 +108,7 @@ The key flow:
 
 ## Tools
 
-The model has nine tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has ten tools. Read-only tools run without confirmation; mutating tools always require it.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
@@ -120,6 +122,30 @@ The model has nine tools. Read-only tools run without confirmation; mutating too
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
 - **`edit_file`** — targeted find-and-replace in an existing file. `old_string` must match exactly once (fails if not found or ambiguous). Shows a `-`/`+` diff preview.
 - **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches `DANGEROUS_PATTERNS`.
+
+**Delegation (no confirmation):**
+- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
+
+## Subagent System
+
+The `delegate` tool lets the model spawn child agents for subtasks. Each subagent gets:
+- A **fresh conversation** (isolated from the parent)
+- A **filtered tool set** (e.g. read-only for `explore`)
+- An optional **model override** (e.g. haiku for speed)
+- An optional **custom system prompt**
+- **No access to `delegate`** itself (no nesting)
+
+**Built-in agents:**
+- `explore` — read-only tools, uses haiku, research-focused system prompt
+- `code` — all tools except delegate, inherits parent model and system prompt
+
+**Custom agents:** Place `.json` files in `~/.agents/` (user-level) or `.agents/` (project-level, higher priority). Each defines `name`, `description`, optional `model`, optional `tools` list, optional `system_prompt`. The `delegate` tool is always excluded from subagent tool lists.
+
+**Key files:**
+- `agents.py` — `BUILTIN_AGENTS`, `load_all_agents()`, `run_subagent()`
+- `tools/delegate.py` — tool schema and handler (calls `_run_subagent` callback)
+- `tools/__init__.py` — `build_tool_set()` for filtering tools
+- `cli.py` — `setup_delegate()` wires the callback and updates the tool description
 
 ## Key behaviours
 

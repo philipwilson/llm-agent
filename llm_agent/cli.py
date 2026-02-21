@@ -17,7 +17,7 @@ import anthropic
 
 from llm_agent import VERSION
 from llm_agent.formatting import bold, dim, red, yellow, format_tokens
-from llm_agent.agent import agent_turn
+from llm_agent.agent import agent_turn, invalidate_tool_cache
 from llm_agent.tools import base
 from llm_agent.tools.base import _resolve
 
@@ -248,6 +248,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 if default_thinking and not thinking_level:
                     thinking_level = default_thinking
                     print(dim(f"(thinking: {thinking_level})"))
+                setup_delegate(client, model, auto_approve, thinking_level)
             else:
                 print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
             continue
@@ -301,6 +302,41 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 conversation.pop(0)
 
 
+def setup_delegate(client, model, auto_approve, thinking_level):
+    """Configure the delegate tool with available agents and a run callback."""
+    from llm_agent.agents import load_all_agents, run_subagent
+    from llm_agent.tools import delegate
+
+    agents = load_all_agents()
+
+    # Update the delegate tool description with available agents
+    agent_lines = []
+    for name, defn in sorted(agents.items()):
+        desc = defn.get("description", "")
+        agent_model = defn.get("model") or "(inherits parent)"
+        agent_lines.append(f"  - {name}: {desc} [model: {agent_model}]")
+    agent_list = "\n".join(agent_lines)
+
+    delegate.SCHEMA["description"] = (
+        "Delegate a task to a specialized subagent that runs independently "
+        "and returns its findings. Use 'explore' for fast read-only research. "
+        "Use 'code' for tasks that need file writes or commands.\n\n"
+        f"Available agents:\n{agent_list}"
+    )
+
+    # Invalidate cached tools so the updated description is picked up
+    invalidate_tool_cache()
+
+    # Set up the callback closure
+    def _callback(agent_name, task):
+        return run_subagent(
+            agent_name, task, client, model, auto_approve,
+            thinking_level=thinking_level,
+        )
+
+    delegate._run_subagent = _callback
+
+
 def main():
     parser = argparse.ArgumentParser(description="Unix CLI agent powered by Claude")
     parser.add_argument(
@@ -338,6 +374,7 @@ def main():
     model = MODELS[args.model]
     thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
     client = make_client(model)
+    setup_delegate(client, model, auto_approve=args.yolo, thinking_level=thinking)
 
     if args.c:
         _, turn_usage = run_question(

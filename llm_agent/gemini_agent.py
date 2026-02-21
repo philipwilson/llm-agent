@@ -89,9 +89,15 @@ def _to_gemini_contents(messages):
 
 
 def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
-                      thinking_level=None):
+                      thinking_level=None, tools=None, tool_registry=None,
+                      system_prompt=None):
     """Run a single Gemini model turn. Same contract as agent_turn()."""
     from google.genai import types
+
+    # Resolve tools, registry, and system prompt (use defaults if not provided)
+    effective_tools = tools if tools is not None else TOOLS
+    effective_registry = tool_registry if tool_registry is not None else TOOL_REGISTRY
+    effective_system = system_prompt if system_prompt is not None else SYSTEM_PROMPT
 
     contents = _to_gemini_contents(messages)
 
@@ -105,8 +111,8 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
         thinking_config = types.ThinkingConfig(thinking_level=level_map[thinking_level])
 
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        tools=_convert_tools(TOOLS),
+        system_instruction=effective_system,
+        tools=_convert_tools(effective_tools),
         thinking_config=thinking_config,
     )
 
@@ -201,7 +207,7 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     for tool_use in tool_uses:
         name = tool_use["name"]
         params = tool_use["input"]
-        entry = TOOL_REGISTRY.get(name)
+        entry = effective_registry.get(name)
         if entry is None:
             output = f"(unknown tool: {name})"
         else:
