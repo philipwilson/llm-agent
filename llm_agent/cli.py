@@ -26,6 +26,9 @@ MODELS = {
     "gemini-pro": "gemini-3.1-pro-preview",
 }
 DEFAULT_MODEL = "sonnet"
+DEFAULT_THINKING = {
+    "gemini-3.1-pro-preview": "high",
+}
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
 MAX_STEPS = 20
@@ -79,7 +82,8 @@ def make_client(model):
     sys.exit(1)
 
 
-def run_question(client, model, conversation, user_input, auto_approve=False):
+def run_question(client, model, conversation, user_input, auto_approve=False,
+                 thinking_level=None):
     """Run a single question through the agent loop.
 
     Returns (updated_conversation, turn_usage) or (None, turn_usage) if cancelled.
@@ -95,10 +99,15 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
     else:
         turn_fn = agent_turn
 
+    extra_kwargs = {}
+    if is_gemini_model(model) and thinking_level:
+        extra_kwargs["thinking_level"] = thinking_level
+
     try:
         while True:
             messages, done = turn_fn(
-                client, model, messages, auto_approve, usage_totals=turn_usage
+                client, model, messages, auto_approve, usage_totals=turn_usage,
+                **extra_kwargs
             )
             if done:
                 break
@@ -113,10 +122,10 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
     return messages, turn_usage
 
 
-def agent_loop(client, model, auto_approve=False):
+def agent_loop(client, model, auto_approve=False, thinking_level=None):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question, /clear, /model, /version, or 'quit'.\n"))
+    print(dim("Type a question, /clear, /model, /thinking, /version, or 'quit'.\n"))
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
@@ -154,12 +163,34 @@ def agent_loop(client, model, auto_approve=False):
                 else:
                     print(dim(f"(switched to {new_model})"))
                 model = new_model
+                # Apply per-model thinking default unless user has explicitly set one
+                default_thinking = DEFAULT_THINKING.get(new_model)
+                if default_thinking and not thinking_level:
+                    thinking_level = default_thinking
+                    print(dim(f"(thinking: {thinking_level})"))
             else:
                 print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
             continue
+        if user_input.strip().startswith("/thinking"):
+            parts = user_input.strip().split()
+            if len(parts) == 1:
+                level = thinking_level or "off (model default)"
+                print(dim(f"(thinking: {level})"))
+            elif parts[1] == "off":
+                thinking_level = None
+                print(dim("(thinking: off, model decides)"))
+            elif parts[1] in ("low", "medium", "high"):
+                if not is_gemini_model(model):
+                    print(dim("(warning: --thinking is only supported for Gemini models)"))
+                thinking_level = parts[1]
+                print(dim(f"(thinking: {thinking_level})"))
+            else:
+                print(dim(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)"))
+            continue
 
         result, turn_usage = run_question(
-            client, model, conversation, user_input, auto_approve
+            client, model, conversation, user_input, auto_approve,
+            thinking_level=thinking_level
         )
 
         for key in ("input", "output", "cache_read", "cache_create"):
@@ -215,15 +246,23 @@ def main():
         metavar="SECONDS",
         help=f"Command timeout in seconds (default: {base.DEFAULT_COMMAND_TIMEOUT})",
     )
+    parser.add_argument(
+        "--thinking",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="Thinking level for Gemini models (default: high for gemini-pro, off for others)",
+    )
     args = parser.parse_args()
 
     base.COMMAND_TIMEOUT = args.timeout
     model = MODELS[args.model]
+    thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
     client = make_client(model)
 
     if args.c:
         _, turn_usage = run_question(
-            client, model, [], args.c, auto_approve=args.yolo
+            client, model, [], args.c, auto_approve=args.yolo,
+            thinking_level=thinking
         )
         if turn_usage["input"] > 0 or turn_usage["output"] > 0:
             cache_info = ""
@@ -235,7 +274,7 @@ def main():
             ), file=sys.stderr)
     else:
         setup_readline()
-        agent_loop(client, model, auto_approve=args.yolo)
+        agent_loop(client, model, auto_approve=args.yolo, thinking_level=thinking)
 
 
 if __name__ == "__main__":

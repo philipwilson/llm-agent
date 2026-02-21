@@ -80,14 +80,26 @@ def _to_gemini_contents(messages):
     return contents
 
 
-def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=None):
+def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
+                      thinking_level=None):
     """Run a single Gemini model turn. Same contract as agent_turn()."""
     from google.genai import types
 
     contents = _to_gemini_contents(messages)
+
+    thinking_config = None
+    if thinking_level:
+        level_map = {
+            "low": types.ThinkingLevel.LOW,
+            "medium": types.ThinkingLevel.MEDIUM,
+            "high": types.ThinkingLevel.HIGH,
+        }
+        thinking_config = types.ThinkingConfig(thinking_level=level_map[thinking_level])
+
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         tools=_convert_tools(TOOLS),
+        thinking_config=thinking_config,
     )
 
     function_calls = []
@@ -127,6 +139,9 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
 
         except Exception as e:
             error_name = type(e).__name__
+            if error_name == "ClientError" and "not supported" in str(e).lower():
+                print(f"\n{red(str(e))}")
+                return messages, True
             retryable = error_name in (
                 "ResourceExhausted", "InternalServerError",
                 "ServiceUnavailable", "TooManyRequests",

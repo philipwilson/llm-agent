@@ -44,6 +44,10 @@ llm-agent -m gemini-pro
 llm-agent -y
 llm-agent --yolo
 
+# Gemini thinking level (low/medium/high)
+llm-agent -m gemini-pro --thinking high
+llm-agent -m gemini-flash --thinking low -c "summarise this repo"
+
 # Single-shot mode (non-interactive)
 llm-agent -c "how much disk space is free?"
 llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
@@ -87,7 +91,7 @@ The agent is split across several modules:
 
 The key flow:
 
-1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
+1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`), creates API client, dispatches to single-shot or interactive mode
 2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn` (or `gemini_agent_turn`) in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
 3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
 4. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
@@ -112,6 +116,7 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 
 - **Working directory tracking** — `ShellState` tracks `cwd` across commands (like Claude Code: working directory persists, other shell state does not). All file-based tools resolve relative paths against it via `_resolve()`
 - **Streaming** — model responses stream to the terminal as they're generated
+- **Thinking levels** — Gemini models support `--thinking low|medium|high` to control reasoning depth. `gemini-pro` defaults to `high`; other models default to off. In interactive mode, `/thinking` shows or changes the level (`/thinking off` resets to no thinking config). Has no effect on Anthropic models.
 - **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
 - **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
