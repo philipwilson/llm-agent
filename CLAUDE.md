@@ -51,6 +51,11 @@ llm-agent -m gemini-flash --thinking low -c "summarise this repo"
 # Single-shot mode (non-interactive)
 llm-agent -c "how much disk space is free?"
 llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
+
+# Attach images or PDFs with @filepath
+llm-agent -c "@photo.png what's in this image?"
+llm-agent -c "@report.pdf summarize this document"
+llm-agent -c "@a.png @b.png compare these two images"
 ```
 
 ## Package Structure
@@ -120,6 +125,7 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 - **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
 - **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
+- **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
 
 ## Model Names

@@ -1,5 +1,6 @@
 """Gemini agent turn: streaming, tool dispatch, retry logic."""
 
+import base64
 import os
 import time
 
@@ -59,6 +60,13 @@ def _to_gemini_contents(messages):
                 btype = block.get("type")
                 if btype == "text":
                     parts.append(types.Part(text=block["text"]))
+                elif btype in ("image", "document"):
+                    source = block["source"]
+                    raw = base64.b64decode(source["data"])
+                    parts.append(types.Part.from_bytes(
+                        data=raw,
+                        mime_type=source["media_type"],
+                    ))
                 elif btype == "tool_use":
                     parts.append(types.Part(
                         function_call=types.FunctionCall(

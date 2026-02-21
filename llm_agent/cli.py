@@ -7,16 +7,19 @@ and Google Vertex AI.
 
 import argparse
 import atexit
+import base64
 import os
+import re
 import readline
 import sys
 
 import anthropic
 
 from llm_agent import VERSION
-from llm_agent.formatting import bold, dim, yellow, format_tokens
+from llm_agent.formatting import bold, dim, red, yellow, format_tokens
 from llm_agent.agent import agent_turn
 from llm_agent.tools import base
+from llm_agent.tools.base import _resolve
 
 MODELS = {
     "opus": "claude-opus-4-6",
@@ -29,6 +32,14 @@ DEFAULT_MODEL = "sonnet"
 DEFAULT_THINKING = {
     "gemini-3.1-pro-preview": "high",
 }
+ATTACHMENT_TYPES = {
+    ".png":  ("image/png",  "image"),
+    ".jpg":  ("image/jpeg", "image"),
+    ".jpeg": ("image/jpeg", "image"),
+    ".gif":  ("image/gif",  "image"),
+    ".webp": ("image/webp", "image"),
+    ".pdf":  ("application/pdf", "document"),
+}
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
 MAX_STEPS = 20
@@ -37,6 +48,64 @@ MAX_CONVERSATION_TURNS = 40
 
 def is_gemini_model(model):
     return model.startswith("gemini-")
+
+
+def parse_attachments(text):
+    """Parse @filepath tokens from user input and build multimodal content blocks.
+
+    Returns (cleaned_text, attachment_blocks, error_message).
+    attachment_blocks is a list of Anthropic-format image/document source blocks.
+    error_message is set if a recognized extension points to a missing file, or
+    a file exists but has an unsupported extension.
+    """
+    blocks = []
+    tokens_to_remove = []
+
+    for match in re.finditer(r"(?<!\S)@(\S+)", text):
+        token = match.group(1)
+        path = _resolve(token)
+        ext = os.path.splitext(token)[1].lower()
+
+        if ext in ATTACHMENT_TYPES:
+            if not os.path.isfile(path):
+                return text, [], f"File not found: {token}"
+            media_type, block_type = ATTACHMENT_TYPES[ext]
+            with open(path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            size = os.path.getsize(path)
+            if size >= 1_000_000:
+                size_str = f"{size / 1_000_000:.1f} MB"
+            elif size >= 1_000:
+                size_str = f"{size / 1_000:.1f} KB"
+            else:
+                size_str = f"{size} B"
+            print(dim(f"  attached: {token} ({size_str})"))
+            blocks.append({
+                "type": block_type,
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": data,
+                },
+            })
+            tokens_to_remove.append(match)
+        elif os.path.isfile(path):
+            # File exists but unsupported extension
+            return text, [], f"Unsupported file type: {ext} ({token})"
+        # else: not a file reference, leave as literal text (e.g. @username)
+
+    if not blocks:
+        return text, [], None
+
+    # Remove matched @tokens from text (process in reverse to preserve offsets)
+    cleaned = text
+    for match in reversed(tokens_to_remove):
+        cleaned = cleaned[:match.start()] + cleaned[match.end():]
+    cleaned = cleaned.strip()
+    if not cleaned:
+        cleaned = "Describe this."
+
+    return cleaned, blocks, None
 
 
 def setup_readline():
@@ -88,9 +157,20 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
 
     Returns (updated_conversation, turn_usage) or (None, turn_usage) if cancelled.
     """
-    conversation.append({"role": "user", "content": user_input})
-    messages = list(conversation)
     turn_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+
+    text, attachment_blocks, error = parse_attachments(user_input)
+    if error:
+        print(red(error))
+        return None, turn_usage
+
+    if attachment_blocks:
+        content = attachment_blocks + [{"type": "text", "text": text}]
+    else:
+        content = user_input
+
+    conversation.append({"role": "user", "content": content})
+    messages = list(conversation)
     steps = 0
 
     if is_gemini_model(model):
