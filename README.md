@@ -70,7 +70,7 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has nine tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has ten tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
 
 **Read-only:**
 - **read_file** -- read file contents with line numbers, optional offset/limit
@@ -85,6 +85,9 @@ The agent has nine tools it can use autonomously. Read-only tools run without co
 - **edit_file** -- targeted find-and-replace in an existing file
 - **run_command** -- run an arbitrary shell command
 
+**Delegation (no confirmation):**
+- **delegate** -- spawn a subagent with its own conversation and filtered tool set (built-in: `explore` for read-only research, `code` for full access)
+
 In yolo mode (`-y`), `run_command` auto-approves unless the command matches known dangerous patterns (e.g. `rm -rf`, `mkfs`, `dd`).
 
 ## Features
@@ -95,7 +98,7 @@ In yolo mode (`-y`), `run_command` auto-approves unless the command matches know
 - **Token tracking** -- per-turn and session totals after each answer
 - **File attachments** -- `@filepath` syntax for images (png, jpg, gif, webp) and PDFs
 - **Readline** -- line editing and persistent history (`~/.agent_history`)
-- **Output truncation** -- long command output is trimmed to first/last 100 lines
+- **Output truncation** -- command output over 200 lines is trimmed to first/last 100 lines
 
 ## Supported models
 
