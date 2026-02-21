@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Python agent loop that uses Claude to answer user questions by exploring the filesystem and running Unix commands. Supports both the direct Anthropic API and Google Vertex AI.
+A Python agent loop that uses LLMs to answer user questions by exploring the filesystem and running Unix commands. Supports Anthropic Claude (direct API and Vertex AI) and Google Gemini models.
 
 ## Installation
 
 ```bash
 pip install -e .              # editable install
 pip install -e '.[vertex]'    # with Vertex AI support
+pip install -e '.[gemini]'    # with Gemini support
+pip install -e '.[all]'       # all providers
 ```
 
 ## Running
@@ -25,6 +27,9 @@ export CLOUD_ML_REGION="us-east5"  # optional, defaults to us-east5
 
 # If both are set, ANTHROPIC_API_KEY takes priority.
 
+# Option 3: Google Gemini
+export GOOGLE_API_KEY="your-google-api-key"
+
 # Run with default model (sonnet)
 llm-agent
 
@@ -32,6 +37,8 @@ llm-agent
 llm-agent -m opus
 llm-agent -m haiku
 llm-agent -m sonnet
+llm-agent -m gemini-flash
+llm-agent -m gemini-pro
 
 # Auto-approve safe commands
 llm-agent -y
@@ -49,7 +56,8 @@ pyproject.toml          — package metadata and entry point
 llm_agent/
     __init__.py         — VERSION and package metadata
     cli.py              — main, arg parsing, REPL, run_question
-    agent.py            — agent_turn, streaming, caching, retry logic
+    agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
+    gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     formatting.py       — colour helpers, output truncation, token formatting
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
@@ -71,15 +79,16 @@ llm_agent/
 
 The agent is split across several modules:
 
-- **`cli.py`** — entry point, arg parsing, REPL loop
-- **`agent.py`** — streaming API calls, prompt caching, retry logic
+- **`cli.py`** — entry point, arg parsing, REPL loop, selects agent turn function based on model
+- **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
+- **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
 - **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`
 
 The key flow:
 
 1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`), creates API client, dispatches to single-shot or interactive mode
-2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
+2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn` (or `gemini_agent_turn`) in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
 3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
 4. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
 5. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
@@ -111,3 +120,14 @@ The model has seven tools. Read-only tools run without confirmation; mutating to
 ## Model Names
 
 Vertex AI Anthropic models use bare names without `@date` suffixes: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
+
+Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `gemini-3.1-pro-preview`.
+
+## Provider Architecture
+
+Messages are stored internally in Anthropic format. For Gemini models, `gemini_agent.py` converts messages at the API boundary:
+- `role: "assistant"` → `role: "model"`
+- `tool_use` blocks → `FunctionCall` parts
+- `tool_result` blocks → `FunctionResponse` parts (tool name stashed in `_name` field)
+
+The `google-genai` package is lazy-imported only when a Gemini model is selected. Switching providers via `/model` recreates the client and clears the conversation.

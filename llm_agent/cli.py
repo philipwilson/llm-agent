@@ -22,12 +22,18 @@ MODELS = {
     "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
     "haiku": "claude-haiku-4-5",
+    "gemini-flash": "gemini-2.5-flash",
+    "gemini-pro": "gemini-3.1-pro-preview",
 }
 DEFAULT_MODEL = "sonnet"
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
 MAX_STEPS = 20
 MAX_CONVERSATION_TURNS = 40
+
+
+def is_gemini_model(model):
+    return model.startswith("gemini-")
 
 
 def setup_readline():
@@ -39,12 +45,28 @@ def setup_readline():
     atexit.register(readline.write_history_file, HISTORY_FILE)
 
 
-def make_client():
-    """Create an Anthropic client, auto-detecting the backend.
+def make_client(model):
+    """Create an API client for the given model.
 
-    Uses the direct Anthropic API if ANTHROPIC_API_KEY is set,
+    For Gemini models, uses the google-genai SDK with GOOGLE_API_KEY.
+    For Anthropic models, uses the direct API if ANTHROPIC_API_KEY is set,
     otherwise falls back to Vertex AI (requires ANTHROPIC_VERTEX_PROJECT_ID).
     """
+    if is_gemini_model(model):
+        try:
+            from google import genai
+        except ImportError:
+            print("Install google-genai: pip install 'llm-agent[gemini]'")
+            sys.exit(1)
+        api_key = (
+            os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
+        )
+        if not api_key:
+            print("Set GOOGLE_API_KEY for Gemini models.")
+            sys.exit(1)
+        return genai.Client(api_key=api_key)
+
     if os.environ.get("ANTHROPIC_API_KEY"):
         return anthropic.Anthropic()
 
@@ -67,9 +89,15 @@ def run_question(client, model, conversation, user_input, auto_approve=False):
     turn_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
     steps = 0
 
+    if is_gemini_model(model):
+        from llm_agent.gemini_agent import gemini_agent_turn
+        turn_fn = gemini_agent_turn
+    else:
+        turn_fn = agent_turn
+
     try:
         while True:
-            messages, done = agent_turn(
+            messages, done = turn_fn(
                 client, model, messages, auto_approve, usage_totals=turn_usage
             )
             if done:
@@ -118,8 +146,14 @@ def agent_loop(client, model, auto_approve=False):
                 print(dim(f"(model: {model})"))
                 print(dim(f"  available: {', '.join(MODELS.keys())}"))
             elif parts[1] in MODELS:
-                model = MODELS[parts[1]]
-                print(dim(f"(switched to {model})"))
+                new_model = MODELS[parts[1]]
+                if is_gemini_model(new_model) != is_gemini_model(model):
+                    client = make_client(new_model)
+                    conversation = []
+                    print(dim(f"(switched to {new_model}, conversation cleared)"))
+                else:
+                    print(dim(f"(switched to {new_model})"))
+                model = new_model
             else:
                 print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
             continue
@@ -185,7 +219,7 @@ def main():
 
     base.COMMAND_TIMEOUT = args.timeout
     model = MODELS[args.model]
-    client = make_client()
+    client = make_client(model)
 
     if args.c:
         _, turn_usage = run_question(

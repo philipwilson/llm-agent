@@ -11,6 +11,8 @@ dependencies = ["anthropic"]
 
 [project.optional-dependencies]
 vertex = ["anthropic[vertex]"]
+gemini = ["google-genai"]
+all = ["anthropic[vertex]", "google-genai"]
 
 [project.scripts]
 llm-agent = "llm_agent.cli:main"
