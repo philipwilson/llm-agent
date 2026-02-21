@@ -12,6 +12,11 @@ from llm_agent.tools import TOOLS, TOOL_REGISTRY
 
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 2, 4]  # seconds between retries (exponential backoff)
+MAX_OUTPUT_TOKENS = {
+    "claude-opus-4-6": 128_000,
+    "claude-sonnet-4-6": 64_000,
+    "claude-haiku-4-5": 64_000,
+}
 
 CACHE_CONTROL = {"type": "ephemeral"}
 
@@ -113,7 +118,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
 
             with client.messages.stream(
                 model=model,
-                max_tokens=64000 if "haiku" in model else 65536,
+                max_tokens=MAX_OUTPUT_TOKENS.get(model, 64_000),
                 system=effective_system,
                 tools=effective_tools,
                 messages=cached_msgs,
