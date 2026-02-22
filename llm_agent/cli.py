@@ -18,6 +18,7 @@ import anthropic
 from llm_agent import VERSION
 from llm_agent.formatting import bold, dim, red, yellow, format_tokens
 from llm_agent.agent import agent_turn, invalidate_tool_cache
+from llm_agent.skills import load_all_skills, render_skill, format_skill_list
 from llm_agent.tools import base
 from llm_agent.tools.base import _resolve
 
@@ -242,7 +243,8 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
 def agent_loop(client, model, auto_approve=False, thinking_level=None):
     mode = "YOLO mode" if auto_approve else "confirm mode"
     print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question, /clear, /model, /thinking, /version, or 'quit'.\n"))
+    print(dim("Type a question, /clear, /model, /thinking, /skills, /version, or 'quit'.\n"))
+    skills = load_all_skills()
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
@@ -286,6 +288,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                     thinking_level = default_thinking
                     print(dim(f"(thinking: {thinking_level})"))
                 setup_delegate(client, model, auto_approve, thinking_level)
+                skills = load_all_skills()
             else:
                 print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
             continue
@@ -305,6 +308,24 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             else:
                 print(dim(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)"))
             continue
+        if user_input.strip() == "/skills":
+            skills = load_all_skills()
+            if skills:
+                print(dim("Available skills:"))
+                print(dim(format_skill_list(skills)))
+            else:
+                print(dim("(no skills found — add SKILL.md files in .skills/ or ~/.skills/)"))
+            continue
+        if user_input.startswith("/"):
+            parts = user_input.split(None, 1)
+            skill_name = parts[0][1:]
+            if skill_name in skills:
+                args_string = parts[1] if len(parts) > 1 else ""
+                user_input = render_skill(skills[skill_name], args_string)
+                print(dim(f"  (skill: {skill_name})"))
+            else:
+                print(dim(f"(unknown command '/{skill_name}')"))
+                continue
 
         result, turn_usage = run_question(
             client, model, conversation, user_input, auto_approve,

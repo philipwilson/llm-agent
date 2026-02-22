@@ -68,6 +68,7 @@ llm_agent/
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     agents.py           — subagent definitions, custom agent loading, run_subagent
+    skills.py           — skill parsing, discovery, rendering (/slash commands)
     formatting.py       — colour helpers, output truncation, token formatting
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
@@ -87,6 +88,7 @@ llm_agent/
 
 - Package name: `llm-agent` (import name: `llm_agent`)
 - Console entry point: `llm-agent` command
+- Version is defined in `llm_agent/__init__.py` (`VERSION`). `pyproject.toml` reads it dynamically — do not add a version there.
 
 ## Architecture
 
@@ -146,6 +148,50 @@ The `delegate` tool lets the model spawn child agents for subtasks. Each subagen
 - `tools/delegate.py` — tool schema and handler (calls `_run_subagent` callback)
 - `tools/__init__.py` — `build_tool_set()` for filtering tools
 - `cli.py` — `setup_delegate()` wires the callback and updates the tool description
+
+## Skill System
+
+Skills are reusable prompt templates invoked as `/slash` commands in interactive mode. They let users define project-specific workflows (code review, issue fixing, deployment checklists) as markdown files.
+
+**Discovery:** Skills are loaded from `~/.skills/` (user-level) and `.skills/` (project-level, higher priority). Each skill lives in a subdirectory containing a `SKILL.md` file:
+
+```
+.skills/
+    review/
+        SKILL.md
+    deploy-check/
+        SKILL.md
+```
+
+**File format:** YAML frontmatter with `---` delimiters, followed by a prompt body:
+
+```yaml
+---
+name: review
+description: Code review a file for bugs and style issues
+argument-hint: <filepath>
+---
+Review the following file for bugs, style issues, and improvements.
+
+File: $0
+Branch: !`git branch --show-current`
+```
+
+**Frontmatter fields:** `name` (required), `description`, `argument-hint`.
+
+**Variable substitution:** `$ARGUMENTS` expands to the full args string. `$0`, `$1`, etc. expand to positional args (space-split).
+
+**Dynamic injection:** Lines matching `` !`command` `` are replaced with the command's stdout (runs in the agent's working directory, 5-second timeout).
+
+**Interactive commands:**
+- `/skills` — list available skills
+- `/name [args]` — invoke a skill (e.g. `/review src/main.py`)
+
+Built-in commands (`/clear`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills.
+
+**Key files:**
+- `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`
+- `cli.py` — loads skills in `agent_loop()`, routes `/name` commands to skills
 
 ## Key behaviours
 
