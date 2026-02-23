@@ -13,7 +13,8 @@ pip install -e .              # editable install
 pip install -e '.[vertex]'    # with Vertex AI support
 pip install -e '.[gemini]'    # with Gemini support
 pip install -e '.[openai]'    # with OpenAI support
-pip install -e '.[all]'       # all providers
+pip install -e '.[tui]'       # with Textual TUI
+pip install -e '.[all]'       # all providers + TUI
 ```
 
 ## Running
@@ -61,6 +62,9 @@ llm-agent -m gemini-flash --thinking low -c "summarise this repo"
 llm-agent -c "how much disk space is free?"
 llm-agent -c "what's in /etc/hosts?" -m haiku --yolo
 
+# Disable TUI, use readline REPL
+llm-agent --no-tui
+
 # Attach images or PDFs with @filepath
 llm-agent -c "@photo.png what's in this image?"
 llm-agent -c "@report.pdf summarize this document"
@@ -80,6 +84,8 @@ llm_agent/
     agents.py           — subagent definitions, custom agent loading, run_subagent
     skills.py           — skill parsing, discovery, rendering (/slash commands)
     formatting.py       — colour helpers, output truncation, token formatting
+    display.py          — Display protocol, get_display/set_display singleton
+    tui.py              — Textual TUI app, TUIDisplay, ReadlineInput, light theme
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
         __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set()
@@ -108,16 +114,19 @@ The agent is split across several modules:
 - **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
 - **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
 - **`openai_agent.py`** — OpenAI streaming, tool schema/message format conversion
+- **`display.py`** — Display protocol abstracting all user-facing output (print/input)
+- **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
 - **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`
 
 The key flow:
 
-1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`), creates API client, dispatches to single-shot or interactive mode
+1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`, `--no-tui`), creates API client, dispatches to single-shot, TUI, or readline REPL mode
 2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn`, `gemini_agent_turn`, or `openai_agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
-3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history, session-level token stats, and skill routing
-4. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
-5. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
+3. **`agent_loop()`** (`cli.py`) — readline REPL that calls `run_question` repeatedly, maintains conversation history, session-level token stats, and skill routing
+4. **`AgentApp`** (`tui.py`) — Textual TUI alternative to `agent_loop()`. Runs `run_question()` in a worker thread, routes output via `TUIDisplay`
+5. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
+6. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
 
 ## Tools
 
@@ -204,12 +213,71 @@ Built-in commands (`/clear`, `/model`, `/thinking`, `/version`) cannot be shadow
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`
 - `cli.py` — loads skills in `agent_loop()`, routes `/name` commands to skills
 
+## Display Protocol
+
+All user-facing output goes through a `Display` protocol (`display.py`), accessed via a module-level singleton (`get_display()` / `set_display()`). This decouples output from `print()`/`input()` calls, allowing the TUI to route output to widgets without changing tool or agent code.
+
+**`Display` methods:**
+- `stream_start()` / `stream_token(text)` / `stream_end()` — model response streaming
+- `tool_log(message)` — tool invocation logging (already ANSI-formatted)
+- `tool_result(line_count)` — tool output summary
+- `confirm(preview_lines, prompt_text) -> bool` — show preview, ask Y/n
+- `auto_approved(preview_lines)` — show preview for auto-approved actions
+- `status(message)` / `error(message)` / `info(message)` — output categories
+
+The default `Display` class prints to stdout — identical to the original readline behaviour. `TUIDisplay` overrides these methods to route output to Textual widgets via `call_from_thread()`.
+
+**Key files:**
+- `display.py` — `Display` base class, `get_display()`, `set_display()`
+- `tui.py` — `TUIDisplay(Display)` subclass
+
+## TUI (Textual)
+
+Interactive mode uses a Textual-based TUI by default (falls back to readline if `textual` is not installed, or when `--no-tui` is passed). Single-shot mode (`-c`) always uses the default `Display`.
+
+**Layout:**
+```
++-------------------------------------------+
+|     RichLog (scrollable conversation)     |
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━+
+| > [ReadlineInput]                         |
++━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━+
+| model (mode) |   token usage  | context % |
++-------------------------------------------+
+```
+
+**Key components:**
+- **`AgentApp(App)`** — main Textual app; composes `RichLog`, `ReadlineInput`, status bar
+- **`TUIDisplay(Display)`** — routes all output to widgets via `call_from_thread()`
+- **`ReadlineInput(Input)`** — Emacs/readline keybindings (Ctrl+A/E/F/B/D/K/U/W/H/P/N)
+- **Worker thread** — `run_question()` runs synchronously in a Textual `@work(thread=True)` worker
+- **Light theme** — white background, green accents, light gray status bar (`agent-light`)
+
+**Confirmation flow (TUI):**
+1. Worker calls `TUIDisplay.confirm()` → posts preview to RichLog, switches input to Y/n mode
+2. Worker blocks on `threading.Event.wait()`
+3. User presses y/n/Enter → app signals the event
+4. Worker resumes with the result
+
+**Streaming:** Tokens are accumulated in a buffer during streaming. The full response is written to `RichLog` as a single `write()` call on `stream_end()` (each `write()` creates an independent wrapping block, so per-batch writes would cause narrow paragraphs). A `~` indicator replaces the `>` prompt marker during streaming.
+
+**Status bar:** Three `Static` widgets in a `Horizontal` container:
+- Left: model name and mode (confirm/YOLO)
+- Centre: turn token counts + session totals
+- Right: context window remaining percentage
+
+Updated after each agent turn via `_update_status_bar()`.
+
+**Key files:**
+- `tui.py` — `AgentApp`, `TUIDisplay`, `ReadlineInput`, `LIGHT_THEME`, `run_tui()`
+- `cli.py` — `--no-tui` flag, TUI launch path with `ImportError` fallback
+
 ## Key behaviours
 
 - **Working directory tracking** — `ShellState` tracks `cwd` across commands (like Claude Code: working directory persists, other shell state does not). All file-based tools resolve relative paths against it via `_resolve()`
-- **Streaming** — model responses stream to the terminal as they're generated
+- **Streaming** — model responses stream to the terminal as they're generated. In TUI mode, tokens are accumulated and rendered as a single block on completion.
 - **Thinking levels** — Gemini models support `--thinking low|medium|high` to control reasoning depth. `gemini-pro` defaults to `high`; other models default to off. In interactive mode, `/thinking` shows or changes the level (`/thinking off` resets to no thinking config). Has no effect on Anthropic models.
-- **Readline** — line editing and persistent history (`~/.agent_history`, 1000 entries) in interactive mode
+- **Readline** — Emacs-style line editing and persistent history (`~/.agent_history`, 1000 entries) in both TUI and readline REPL modes
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
 - **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
 - **Token-budget conversation trimming** — after each question, if the API-reported input token count exceeds 80% of the model's context window, the oldest message rounds are trimmed to bring usage under budget. This replaces a fixed message-count limit with a budget that adapts to both model capacity and actual message sizes.
