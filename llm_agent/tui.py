@@ -6,7 +6,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
-from textual.widgets import Input, RichLog, Static
+from textual.widgets import Input, RichLog, Rule, Static
 from rich.text import Text
 
 from llm_agent import VERSION
@@ -44,10 +44,12 @@ class TUIDisplay(Display):
         self._app = app
         self._confirm_event = threading.Event()
         self._confirm_result = False
-        # Batch streaming tokens to reduce per-token widget updates
-        self._token_buffer = ""
-        self._token_lock = threading.Lock()
-        self._token_timer = None
+        # Accumulate the full streamed response, write once at stream_end.
+        # Each RichLog.write() creates an independent block that wraps at
+        # its own width, so writing per-batch produces narrow paragraphs.
+        self._stream_buffer = ""
+        self._stream_lock = threading.Lock()
+        self._stream_char_count = 0
 
     # -- helpers --
 
@@ -60,42 +62,35 @@ class TUIDisplay(Display):
         log = self._app.query_one("#conversation", RichLog)
         log.write(Text.from_ansi(text))
 
-    def _flush_tokens(self):
-        """Flush buffered tokens to the widget."""
-        with self._token_lock:
-            buf = self._token_buffer
-            self._token_buffer = ""
-            self._token_timer = None
-        if buf:
-            self._app.call_from_thread(self._app_stream_token, buf)
-
-    def _app_stream_token(self, text):
-        """Append streamed text to the last line of the RichLog."""
-        log = self._app.query_one("#conversation", RichLog)
-        log.write(Text.from_ansi(text), shrink=False, scroll_end=True)
-
     # -- Display protocol --
 
     def stream_start(self):
-        pass  # no blank line needed in TUI
+        with self._stream_lock:
+            self._stream_buffer = ""
+            self._stream_char_count = 0
+        self._app.call_from_thread(self._app_set_streaming, True)
 
     def stream_token(self, text):
-        with self._token_lock:
-            self._token_buffer += text
-            if self._token_timer is None:
-                self._token_timer = threading.Timer(0.05, self._flush_tokens)
-                self._token_timer.start()
+        with self._stream_lock:
+            self._stream_buffer += text
+            self._stream_char_count += len(text)
 
     def stream_end(self):
-        # Flush any remaining tokens
-        if self._token_timer:
-            self._token_timer.cancel()
-        with self._token_lock:
-            buf = self._token_buffer
-            self._token_buffer = ""
-            self._token_timer = None
+        with self._stream_lock:
+            buf = self._stream_buffer
+            self._stream_buffer = ""
+            self._stream_char_count = 0
         if buf:
-            self._app.call_from_thread(self._app_stream_token, buf)
+            self._app.call_from_thread(self._app_write, buf)
+        self._app.call_from_thread(self._app_set_streaming, False)
+
+    def _app_set_streaming(self, active):
+        """Show/hide a streaming indicator in the prompt marker."""
+        marker = self._app.query_one("#prompt-marker", Static)
+        if active:
+            marker.update(Text("~", style="bold italic #d29922"))
+        else:
+            marker.update(Text(">", style="bold #2e8b57"))
 
     def tool_log(self, message):
         self._write(message)
@@ -189,10 +184,9 @@ Screen {
     padding: 0;
 }
 
-#separator {
-    height: 1;
-    background: $surface;
-    color: $text-muted;
+Rule {
+    color: #d0d0d0;
+    margin: 0;
 }
 
 #status-bar {
@@ -247,10 +241,11 @@ class AgentApp(App):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield RichLog(id="conversation", wrap=True, markup=False)
+            yield Rule(line_style="heavy")
             with Horizontal(id="input-row"):
                 yield Static(">", id="prompt-marker")
                 yield Input(placeholder="Type a question...", id="prompt")
-            yield Static(id="separator")
+            yield Rule(line_style="heavy")
             with Horizontal(id="status-bar"):
                 yield Static(id="status-model")
                 yield Static(id="status-tokens")
