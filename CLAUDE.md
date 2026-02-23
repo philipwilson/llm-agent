@@ -275,6 +275,7 @@ Updated after each agent turn via `_update_status_bar()`.
 
 **Keyboard shortcuts:**
 - Ctrl+C / Ctrl+Q — quit the app
+- Ctrl+D — quit when input is empty; delete character under cursor otherwise (standard Unix EOF behaviour)
 
 **Key files:**
 - `tui.py` — `AgentApp`, `TUIDisplay`, `ReadlineInput`, `LIGHT_THEME`, `run_tui()`
