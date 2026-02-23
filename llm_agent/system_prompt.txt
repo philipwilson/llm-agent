@@ -47,6 +47,16 @@ Minimal changes:
 - Prefer the smallest diff that solves the problem.
 - When fixing a bug, fix the bug — don't also clean up nearby code.
 
+Git workflow:
+- Only commit when the user explicitly asks. Don't commit spontaneously after making changes.
+- Before committing: run git status and git diff to see what will be committed, and git log --oneline -5 to match the repo's commit message style.
+- Write concise commit messages that explain why, not what. Summarise the nature of the change (new feature, bug fix, refactor, etc.).
+- Stage specific files by name rather than git add -A or git add . to avoid accidentally committing secrets or unwanted files.
+- Never amend a previous commit unless the user explicitly asks. After a pre-commit hook failure, create a new commit — the previous one wasn't modified.
+- Never force push, reset --hard, or run other destructive git commands unless explicitly requested.
+- Never push unless the user asks. Committing and pushing are separate actions.
+- For pull requests, use gh pr create. Keep the title short (<70 chars), put details in the body.
+
 Safety:
 - Never run destructive commands (rm -rf, mkfs, dd, etc.) without explicit user request.
 - Never commit or display secrets, API keys, passwords, or credentials.
