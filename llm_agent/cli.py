@@ -16,6 +16,7 @@ import sys
 import anthropic
 
 from llm_agent import VERSION
+from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, red, yellow, format_tokens
 from llm_agent.agent import agent_turn, invalidate_tool_cache
 from llm_agent.skills import load_all_skills, render_skill, format_skill_list
@@ -131,7 +132,7 @@ def parse_attachments(text):
                 size_str = f"{size / 1_000:.1f} KB"
             else:
                 size_str = f"{size} B"
-            print(dim(f"  attached: {token} ({size_str})"))
+            get_display().status(f"  attached: {token} ({size_str})")
             blocks.append({
                 "type": block_type,
                 "source": {
@@ -181,11 +182,11 @@ def make_client(model):
         try:
             import openai
         except ImportError:
-            print("Install openai: pip install 'llm-agent[openai]'")
+            get_display().error("Install openai: pip install 'llm-agent[openai]'")
             sys.exit(1)
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            print("Set OPENAI_API_KEY for OpenAI models.")
+            get_display().error("Set OPENAI_API_KEY for OpenAI models.")
             sys.exit(1)
         return openai.OpenAI(api_key=api_key)
 
@@ -193,14 +194,14 @@ def make_client(model):
         try:
             from google import genai
         except ImportError:
-            print("Install google-genai: pip install 'llm-agent[gemini]'")
+            get_display().error("Install google-genai: pip install 'llm-agent[gemini]'")
             sys.exit(1)
         api_key = (
             os.environ.get("GOOGLE_API_KEY")
             or os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY")
         )
         if not api_key:
-            print("Set GOOGLE_API_KEY for Gemini models.")
+            get_display().error("Set GOOGLE_API_KEY for Gemini models.")
             sys.exit(1)
         return genai.Client(api_key=api_key)
 
@@ -212,7 +213,7 @@ def make_client(model):
         region = os.environ.get("CLOUD_ML_REGION", "us-east5")
         return anthropic.AnthropicVertex(region=region, project_id=project_id)
 
-    print("Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID.")
+    get_display().error("Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID.")
     sys.exit(1)
 
 
@@ -226,7 +227,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
 
     text, attachment_blocks, error = parse_attachments(user_input)
     if error:
-        print(red(error))
+        get_display().error(red(error))
         return None, turn_usage
 
     if attachment_blocks:
@@ -261,19 +262,20 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
                 break
             steps += 1
             if steps >= MAX_STEPS:
-                print(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
+                get_display().error(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
                 break
     except KeyboardInterrupt:
-        print(f"\n{dim('(interrupted)')}")
+        get_display().status(f"(interrupted)")
         return None, turn_usage
 
     return messages, turn_usage
 
 
 def agent_loop(client, model, auto_approve=False, thinking_level=None):
+    display = get_display()
     mode = "YOLO mode" if auto_approve else "confirm mode"
-    print(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    print(dim("Type a question, /clear, /model, /thinking, /skills, /version, or 'quit'.\n"))
+    display.info(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
+    display.status("Type a question, /clear, /model, /thinking, /skills, /version, or 'quit'.\n")
     skills = load_all_skills()
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
@@ -282,27 +284,27 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
         try:
             user_input = input("\001\033[1m\002>\001\033[0m\002 ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nBye.")
+            display.info("\nBye.")
             break
 
         if not user_input:
             continue
         if user_input.lower() in ("quit", "exit"):
-            print("Bye.")
+            display.info("Bye.")
             break
         if user_input.strip() == "/clear":
             conversation = []
             session_usage = {"input": 0, "output": 0}
-            print(dim("(conversation cleared)"))
+            display.status("(conversation cleared)")
             continue
         if user_input.strip() == "/version":
-            print(dim(f"llm-agent v{VERSION} (model: {model})"))
+            display.status(f"llm-agent v{VERSION} (model: {model})")
             continue
         if user_input.strip().startswith("/model"):
             parts = user_input.strip().split()
             if len(parts) == 1:
-                print(dim(f"(model: {model})"))
-                print(dim(f"  available: {', '.join(MODELS.keys())}"))
+                display.status(f"(model: {model})")
+                display.status(f"  available: {', '.join(MODELS.keys())}")
             elif parts[1] in MODELS:
                 new_model = MODELS[parts[1]]
                 old_provider = ("gemini" if is_gemini_model(model)
@@ -314,43 +316,43 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 if new_provider != old_provider:
                     client = make_client(new_model)
                     conversation = []
-                    print(dim(f"(switched to {new_model}, conversation cleared)"))
+                    display.status(f"(switched to {new_model}, conversation cleared)")
                 else:
-                    print(dim(f"(switched to {new_model})"))
+                    display.status(f"(switched to {new_model})")
                 model = new_model
                 # Apply per-model thinking default unless user has explicitly set one
                 default_thinking = DEFAULT_THINKING.get(new_model)
                 if default_thinking and not thinking_level:
                     thinking_level = default_thinking
-                    print(dim(f"(thinking: {thinking_level})"))
+                    display.status(f"(thinking: {thinking_level})")
                 setup_delegate(client, model, auto_approve, thinking_level)
                 skills = load_all_skills()
             else:
-                print(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"))
+                display.status(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})")
             continue
         if user_input.strip().startswith("/thinking"):
             parts = user_input.strip().split()
             if len(parts) == 1:
                 level = thinking_level or "off (model default)"
-                print(dim(f"(thinking: {level})"))
+                display.status(f"(thinking: {level})")
             elif parts[1] == "off":
                 thinking_level = None
-                print(dim("(thinking: off, model decides)"))
+                display.status("(thinking: off, model decides)")
             elif parts[1] in ("low", "medium", "high"):
                 if not is_gemini_model(model):
-                    print(dim("(warning: --thinking is only supported for Gemini models)"))
+                    display.status("(warning: --thinking is only supported for Gemini models)")
                 thinking_level = parts[1]
-                print(dim(f"(thinking: {thinking_level})"))
+                display.status(f"(thinking: {thinking_level})")
             else:
-                print(dim(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)"))
+                display.status(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)")
             continue
         if user_input.strip() == "/skills":
             skills = load_all_skills()
             if skills:
-                print(dim("Available skills:"))
-                print(dim(format_skill_list(skills)))
+                display.status("Available skills:")
+                display.status(format_skill_list(skills))
             else:
-                print(dim("(no skills found — add SKILL.md files in .skills/ or ~/.skills/)"))
+                display.status("(no skills found — add SKILL.md files in .skills/ or ~/.skills/)")
             continue
         if user_input.startswith("/"):
             parts = user_input.split(None, 1)
@@ -358,9 +360,9 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             if skill_name in skills:
                 args_string = parts[1] if len(parts) > 1 else ""
                 user_input = render_skill(skills[skill_name], args_string)
-                print(dim(f"  (skill: {skill_name})"))
+                display.status(f"  (skill: {skill_name})")
             else:
-                print(dim(f"(unknown command '/{skill_name}')"))
+                display.status(f"(unknown command '/{skill_name}')")
                 continue
 
         result, turn_usage = run_question(
@@ -380,12 +382,12 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 window = CONTEXT_WINDOWS.get(model, 200_000)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_info = f" | context: {remaining_pct:.0f}% remaining"
-            print(dim(
+            display.status(
                 f"  [{format_tokens(turn_usage['input'])} in, "
                 f"{format_tokens(turn_usage['output'])} out{cache_info} | "
                 f"session: {format_tokens(session_usage['input'])} in, "
                 f"{format_tokens(session_usage['output'])} out{context_info}]"
-            ))
+            )
 
         if result is None:
             # Cancelled -- don't update conversation history
@@ -399,7 +401,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
         conversation = trim_conversation(conversation, last_input, model)
         if len(conversation) < old_len:
             removed = old_len - len(conversation)
-            print(dim(f"  (trimmed {removed} old messages to fit context window)"))
+            display.status(f"  (trimmed {removed} old messages to fit context window)")
 
 
 def setup_delegate(client, model, auto_approve, thinking_level):
@@ -468,6 +470,11 @@ def main():
         default=None,
         help="Thinking level for Gemini models (default: high for gemini-pro, off for others)",
     )
+    parser.add_argument(
+        "--no-tui",
+        action="store_true",
+        help="Use readline REPL instead of Textual TUI in interactive mode",
+    )
     args = parser.parse_args()
 
     base.COMMAND_TIMEOUT = args.timeout
@@ -485,13 +492,26 @@ def main():
             cache_info = ""
             if turn_usage["cache_read"] > 0:
                 cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
-            print(dim(
+            get_display().info_stderr(dim(
                 f"  [{format_tokens(turn_usage['input'])} in, "
                 f"{format_tokens(turn_usage['output'])} out{cache_info}]"
-            ), file=sys.stderr)
+            ))
     else:
-        setup_readline()
-        agent_loop(client, model, auto_approve=args.yolo, thinking_level=thinking)
+        use_tui = not args.no_tui
+        if use_tui:
+            try:
+                from llm_agent.tui import run_tui
+                run_tui(client, model, auto_approve=args.yolo,
+                        thinking_level=thinking)
+            except ImportError:
+                # textual not installed, fall back to readline
+                setup_readline()
+                agent_loop(client, model, auto_approve=args.yolo,
+                           thinking_level=thinking)
+        else:
+            setup_readline()
+            agent_loop(client, model, auto_approve=args.yolo,
+                       thinking_level=thinking)
 
 
 if __name__ == "__main__":

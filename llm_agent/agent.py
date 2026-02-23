@@ -6,6 +6,7 @@ import time
 
 import anthropic
 
+from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY
 
@@ -128,7 +129,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                         if event.content_block.type == "text":
                             current_text = ""
                             if not printed_text:
-                                print()  # blank line before model output
+                                get_display().stream_start()
                                 printed_text = True
                         elif event.content_block.type == "tool_use":
                             current_tool_id = event.content_block.id
@@ -137,7 +138,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
 
                     elif event.type == "content_block_delta":
                         if event.delta.type == "text_delta":
-                            print(event.delta.text, end="", flush=True)
+                            get_display().stream_token(event.delta.text)
                             current_text += event.delta.text
                         elif event.delta.type == "input_json_delta":
                             current_tool_input_json += event.delta.partial_json
@@ -174,27 +175,27 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
         except (anthropic.RateLimitError, anthropic.InternalServerError) as e:
             if attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
-                print(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
+                get_display().error(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
                 time.sleep(delay)
                 # Reset state for retry
                 content_blocks = []
             else:
-                print(f"\n{red(f'API error after {MAX_RETRIES + 1} attempts: {e}')}")
+                get_display().error(f"\n{red(f'API error after {MAX_RETRIES + 1} attempts: {e}')}")
                 return messages, True  # give up, return to prompt
 
         except anthropic.APIConnectionError as e:
             if attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
-                print(f"\n{yellow(f'Connection error: {e}. Retrying in {delay}s...')}")
+                get_display().error(f"\n{yellow(f'Connection error: {e}. Retrying in {delay}s...')}")
                 time.sleep(delay)
                 content_blocks = []
             else:
-                print(f"\n{red(f'Connection error after {MAX_RETRIES + 1} attempts: {e}')}")
+                get_display().error(f"\n{red(f'Connection error after {MAX_RETRIES + 1} attempts: {e}')}")
                 return messages, True
 
     # End streaming text with a newline if we printed anything
     if printed_text:
-        print()
+        get_display().stream_end()
 
     # Separate text blocks from tool_use blocks
     tool_uses = [b for b in content_blocks if b["type"] == "tool_use"]
@@ -224,7 +225,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
             else:
                 output = entry["handler"](params)
 
-        print(dim(f"  → {len(output.splitlines())} lines of output"))
+        get_display().tool_result(len(output.splitlines()))
         tool_results.append(
             {
                 "type": "tool_result",

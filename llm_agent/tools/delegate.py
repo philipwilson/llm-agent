@@ -26,10 +26,11 @@ SCHEMA = {
 
 
 def log(params):
+    from llm_agent.display import get_display
     agent = params.get("agent", "")
     task = params.get("task", "")
     preview = task[:80] + "..." if len(task) > 80 else task
-    print(f"  {bold('delegate')} → {cyan(agent)}: {dim(preview)}")
+    get_display().tool_log(f"  {bold('delegate')} → {cyan(agent)}: {dim(preview)}")
 
 LOG = log
 

@@ -51,9 +51,8 @@ def handle(params, auto_approve=False):
             preview.append(f"  {green('+' + ' ' + line)}")
 
     if auto_approve:
-        for line in preview:
-            print(line)
-        print(f"  {dim('(auto-approved)')}")
+        from llm_agent.display import get_display
+        get_display().auto_approved(preview)
     elif not confirm_edit(preview):
         return "(user declined to write this file)"
 

@@ -4,6 +4,7 @@ import json
 import os
 import time
 
+from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY
 
@@ -187,9 +188,9 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                 # Text content
                 if delta.content:
                     if not printed_text:
-                        print()
+                        get_display().stream_start()
                         printed_text = True
-                    print(delta.content, end="", flush=True)
+                    get_display().stream_token(delta.content)
                     full_text += delta.content
 
                 # Tool calls
@@ -226,16 +227,16 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
             )
             if retryable and attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
-                print(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
+                get_display().error(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
                 time.sleep(delay)
             elif retryable:
-                print(f"\n{red(f'API error after {MAX_RETRIES + 1} attempts: {e}')}")
+                get_display().error(f"\n{red(f'API error after {MAX_RETRIES + 1} attempts: {e}')}")
                 return messages, True
             else:
                 raise
 
     if printed_text:
-        print()
+        get_display().stream_end()
 
     # Build Anthropic-format content blocks for internal storage
     content_blocks = []
@@ -276,7 +277,7 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
             else:
                 output = entry["handler"](params)
 
-        print(dim(f"  → {len(output.splitlines())} lines of output"))
+        get_display().tool_result(len(output.splitlines()))
         tool_results.append({
             "type": "tool_result",
             "tool_use_id": tool_use["id"],

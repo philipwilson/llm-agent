@@ -44,16 +44,18 @@ def is_dangerous(command):
 
 
 def confirm(command, description=None, auto_approve=False):
+    from llm_agent.display import get_display
+    display = get_display()
+    preview = []
     if description:
-        print(f"  {dim('#')} {dim(description)}")
-    print(f"  {bold('$')} {bold(command)}")
+        preview.append(f"  {dim('#')} {dim(description)}")
+    preview.append(f"  {bold('$')} {bold(command)}")
     if auto_approve and not is_dangerous(command):
-        print(f"  {dim('(auto-approved)')}")
+        display.auto_approved(preview)
         return True
     if auto_approve and is_dangerous(command):
-        print(f"  {yellow('⚠ dangerous command, requires confirmation')}")
-    answer = input(f"  {dim('Run? [Y/n]')} ").strip().lower()
-    return answer in ("", "y", "yes")
+        preview.append(f"  {yellow('⚠ dangerous command, requires confirmation')}")
+    return display.confirm(preview, "Run? [Y/n]")
 
 
 def handle(params, auto_approve=False):

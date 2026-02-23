@@ -3,7 +3,7 @@
 import os
 import subprocess
 
-from llm_agent.formatting import dim, truncate
+from llm_agent.formatting import truncate
 
 
 DEFAULT_COMMAND_TIMEOUT = 30
@@ -67,7 +67,5 @@ def _resolve(path):
 
 def confirm_edit(prompt_lines):
     """Show a preview and ask for Y/n confirmation."""
-    for line in prompt_lines:
-        print(line)
-    answer = input(f"  {dim('Apply? [Y/n]')} ").strip().lower()
-    return answer in ("", "y", "yes")
+    from llm_agent.display import get_display
+    return get_display().confirm(prompt_lines, "Apply? [Y/n]")

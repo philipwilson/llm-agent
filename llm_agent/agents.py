@@ -3,6 +3,7 @@
 import json
 import os
 
+from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, format_tokens, yellow, red
 
 
@@ -79,7 +80,7 @@ def _load_custom_agents():
                     defn["tools"] = tools
                 agents[name] = defn
             except (json.JSONDecodeError, OSError) as e:
-                print(f"{yellow(f'Warning: skipping {path}: {e}')}")
+                get_display().error(f"{yellow(f'Warning: skipping {path}: {e}')}")
     return agents
 
 
@@ -148,7 +149,7 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     max_steps = 20
     steps = 0
 
-    print(dim(f"  [{agent_name} subagent starting (model: {sub_model})]"))
+    get_display().status(f"  [{agent_name} subagent starting (model: {sub_model})]")
 
     extra_kwargs = {}
     if _provider(sub_model) == "gemini" and thinking_level:
@@ -167,21 +168,21 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
                 break
             steps += 1
             if steps >= max_steps:
-                print(f"\n{yellow(f'  (subagent hit step limit of {max_steps})')}")
+                get_display().error(f"\n{yellow(f'  (subagent hit step limit of {max_steps})')}")
                 break
     except KeyboardInterrupt:
-        print(f"\n{dim('  (subagent interrupted)')}")
+        get_display().status(f"  (subagent interrupted)")
         return "(subagent was interrupted by the user)"
 
     # Print subagent usage
     cache_info = ""
     if sub_usage.get("cache_read", 0) > 0:
         cache_info = f", {format_tokens(sub_usage['cache_read'])} cached"
-    print(dim(
+    get_display().status(
         f"  [{agent_name} subagent done: "
         f"{format_tokens(sub_usage['input'])} in, "
         f"{format_tokens(sub_usage['output'])} out{cache_info}]"
-    ))
+    )
 
     # Extract final text answer from the last assistant message
     for msg in reversed(messages):

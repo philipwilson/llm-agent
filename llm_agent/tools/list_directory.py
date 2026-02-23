@@ -28,7 +28,8 @@ SCHEMA = {
 
 
 def log(params):
-    print(f"  {bold('list_directory')}: {cyan(params.get('path', '.'))}")
+    from llm_agent.display import get_display
+    get_display().tool_log(f"  {bold('list_directory')}: {cyan(params.get('path', '.'))}")
 
 LOG = log
 

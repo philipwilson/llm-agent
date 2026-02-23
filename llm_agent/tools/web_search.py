@@ -33,7 +33,8 @@ SEARCH_TIMEOUT = 15
 
 
 def log(params):
-    print(f"  {bold('web_search')}: \"{params.get('query', '')}\"")
+    from llm_agent.display import get_display
+    get_display().tool_log(f"  {bold('web_search')}: \"{params.get('query', '')}\"")
 
 LOG = log
 

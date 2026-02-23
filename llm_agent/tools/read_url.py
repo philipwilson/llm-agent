@@ -33,7 +33,8 @@ MAX_DOWNLOAD_BYTES = 1_000_000  # 1MB
 
 
 def log(params):
-    print(f"  {bold('read_url')}: {cyan(params.get('url', ''))}")
+    from llm_agent.display import get_display
+    get_display().tool_log(f"  {bold('read_url')}: {cyan(params.get('url', ''))}")
 
 LOG = log
 

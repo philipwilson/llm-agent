@@ -13,10 +13,14 @@ dependencies = ["anthropic"]
 vertex = ["anthropic[vertex]"]
 gemini = ["google-genai"]
 openai = ["openai"]
-all = ["anthropic[vertex]", "google-genai", "openai"]
+tui = ["textual>=1.0"]
+all = ["anthropic[vertex]", "google-genai", "openai", "textual>=1.0"]
 
 [project.scripts]
 llm-agent = "llm_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["llm_agent*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "llm_agent.VERSION"}
