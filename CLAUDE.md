@@ -213,6 +213,26 @@ Built-in commands (`/clear`, `/copy`, `/model`, `/thinking`, `/version`) cannot 
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`
 - `cli.py` — loads skills in `agent_loop()`, routes `/name` commands to skills
 
+### Bundled Skills
+
+The project ships 10 skills in `.skills/`, adapted from [anthropics/skills](https://github.com/anthropics/skills) for llm-agent's tool names and environment:
+
+**Document skills:**
+- `/pdf` — PDF reading, extraction, merging, splitting, creation, form filling. Dependencies: `pypdf`, `pdfplumber`, `reportlab`. Note: the agent's `read_file` tool handles basic PDF reading natively.
+- `/xlsx` — Spreadsheet creation, editing, analysis with formulas and formatting. Dependencies: `openpyxl`, `pandas`. Includes a zero-dependency stdlib fallback for reading. Note: `read_file` cannot handle binary `.xlsx` files.
+- `/docx` — Word document creation (via docx-js/Node.js), editing (unzip → edit XML → rezip), tracked changes, comments. Dependencies: `pandoc`, `npm install -g docx`, LibreOffice (optional).
+- `/pptx` — Presentation reading, editing, creation, with design guidelines and QA workflow. Dependencies: `markitdown[pptx]`, `python-pptx`. Includes a zero-dependency stdlib fallback for reading. Note: `read_file` cannot handle binary `.pptx` files.
+- `/doc-coauthoring` — Structured workflow for co-authoring documentation through context gathering, iterative refinement, and reader testing via subagent delegation.
+
+**Development skills:**
+- `/mcp-builder` — Guide for creating MCP (Model Context Protocol) servers in TypeScript or Python, with research, implementation, testing, and evaluation phases.
+- `/webapp-testing` — Playwright-based web application testing with server lifecycle management, reconnaissance patterns, and form interaction examples. Dependencies: `playwright`.
+- `/web-artifacts-builder` — React + TypeScript + Vite + Tailwind + shadcn/ui project scaffolding and single-HTML bundling.
+- `/skill-creator` — Guide for creating new skills for llm-agent, covering the SKILL.md format, variable substitution, dynamic injection, and design principles.
+
+**Other:**
+- `/imagegen` — Gemini image generation via the `gemini-imagegen` CLI.
+
 ## Display Protocol
 
 All user-facing output goes through a `Display` protocol (`display.py`), accessed via a module-level singleton (`get_display()` / `set_display()`). This decouples output from `print()`/`input()` calls, allowing the TUI to route output to widgets without changing tool or agent code.
