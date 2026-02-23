@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 
+import yaml
+
 from llm_agent.tools.base import shell
 
 
@@ -29,21 +31,16 @@ def parse_skill(path):
     frontmatter = text[3:end].strip()
     body = text[end + 4:].strip()  # skip past "\n---"
 
-    skill = {"body": body, "path": path}
-    for line in frontmatter.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        colon = line.find(":")
-        if colon < 0:
-            continue
-        key = line[:colon].strip()
-        value = line[colon + 1:].strip()
-        skill[key] = value
-
-    if "name" not in skill:
+    try:
+        meta = yaml.safe_load(frontmatter)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(meta, dict) or "name" not in meta:
         return None
 
+    skill = meta
+    skill["body"] = body
+    skill["path"] = path
     return skill
 
 

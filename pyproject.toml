@@ -7,7 +7,7 @@ name = "llm-agent"
 dynamic = ["version"]
 description = "A Unix CLI agent powered by Claude"
 requires-python = ">=3.9"
-dependencies = ["anthropic"]
+dependencies = ["anthropic", "pyyaml"]
 
 [project.optional-dependencies]
 vertex = ["anthropic[vertex]"]
