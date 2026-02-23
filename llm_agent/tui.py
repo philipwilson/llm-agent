@@ -4,6 +4,7 @@ import threading
 
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.theme import Theme
 from textual.widgets import Input, RichLog, Rule, Static
@@ -12,6 +13,26 @@ from rich.text import Text
 from llm_agent import VERSION
 from llm_agent.display import Display, set_display, get_display
 from llm_agent.formatting import bold, dim, format_tokens
+
+
+# ---------------------------------------------------------------------------
+# ReadlineInput — Input widget with Emacs/readline keybindings
+# ---------------------------------------------------------------------------
+
+class ReadlineInput(Input):
+    """Input widget with Emacs-style keybindings."""
+
+    BINDINGS = [
+        Binding("ctrl+a", "home", "Home", show=False),
+        Binding("ctrl+e", "end", "End", show=False),
+        Binding("ctrl+f", "cursor_right", "Forward char", show=False),
+        Binding("ctrl+b", "cursor_left", "Back char", show=False),
+        Binding("ctrl+d", "delete_right", "Delete char", show=False),
+        Binding("ctrl+k", "delete_right_all", "Kill to end", show=False),
+        Binding("ctrl+u", "delete_left_all", "Kill to start", show=False),
+        Binding("ctrl+w", "delete_left_word", "Delete word back", show=False),
+        Binding("ctrl+h", "delete_left", "Backspace", show=False),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +132,7 @@ class TUIDisplay(Display):
         """Switch the input widget to confirmation mode."""
         app = self._app
         app._confirm_mode = True
-        inp = app.query_one("#prompt", Input)
+        inp = app.query_one("#prompt", ReadlineInput)
         inp.placeholder = prompt_text
         inp.value = ""
         app.query_one("#status-tokens", Static).update(
@@ -244,7 +265,7 @@ class AgentApp(App):
             yield Rule(line_style="heavy")
             with Horizontal(id="input-row"):
                 yield Static(">", id="prompt-marker")
-                yield Input(placeholder="Type a question...", id="prompt")
+                yield ReadlineInput(placeholder="Type a question...", id="prompt")
             yield Rule(line_style="heavy")
             with Horizontal(id="status-bar"):
                 yield Static(id="status-model")
@@ -289,7 +310,7 @@ class AgentApp(App):
         ))
 
         self._update_status_bar()
-        self.query_one("#prompt", Input).focus()
+        self.query_one("#prompt", ReadlineInput).focus()
 
     def _update_status_bar(self, turn_usage=None):
         # Model + mode
@@ -345,36 +366,42 @@ class AgentApp(App):
         except OSError:
             pass
 
+    def _history_prev(self, inp):
+        if self._history:
+            if self._history_index == -1:
+                self._history_index = len(self._history) - 1
+            elif self._history_index > 0:
+                self._history_index -= 1
+            inp.value = self._history[self._history_index]
+            inp.cursor_position = len(inp.value)
+
+    def _history_next(self, inp):
+        if self._history_index >= 0:
+            self._history_index += 1
+            if self._history_index >= len(self._history):
+                self._history_index = -1
+                inp.value = ""
+            else:
+                inp.value = self._history[self._history_index]
+                inp.cursor_position = len(inp.value)
+
     def on_key(self, event):
-        """Handle up/down arrow for input history."""
-        inp = self.query_one("#prompt", Input)
+        """Handle arrow keys and Ctrl+P/N for input history."""
+        inp = self.query_one("#prompt", ReadlineInput)
         if not inp.has_focus:
             return
         if self._confirm_mode:
             return
-        if event.key == "up":
-            if self._history:
-                if self._history_index == -1:
-                    self._history_index = len(self._history) - 1
-                elif self._history_index > 0:
-                    self._history_index -= 1
-                inp.value = self._history[self._history_index]
-                inp.cursor_position = len(inp.value)
+        if event.key in ("up", "ctrl+p"):
+            self._history_prev(inp)
             event.prevent_default()
-        elif event.key == "down":
-            if self._history_index >= 0:
-                self._history_index += 1
-                if self._history_index >= len(self._history):
-                    self._history_index = -1
-                    inp.value = ""
-                else:
-                    inp.value = self._history[self._history_index]
-                    inp.cursor_position = len(inp.value)
+        elif event.key in ("down", "ctrl+n"):
+            self._history_next(inp)
             event.prevent_default()
 
     def on_input_submitted(self, event: Input.Submitted):
         text = event.value.strip()
-        inp = self.query_one("#prompt", Input)
+        inp = self.query_one("#prompt", ReadlineInput)
         inp.value = ""
 
         # Handle confirmation mode
