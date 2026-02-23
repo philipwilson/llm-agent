@@ -6,8 +6,9 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.theme import Theme
-from textual.widgets import Input, RichLog, Rule, Static
+from textual.widgets import RichLog, Rule, Static, TextArea
 from rich.text import Text
 
 from llm_agent import VERSION
@@ -16,22 +17,170 @@ from llm_agent.formatting import bold, dim, format_tokens
 
 
 # ---------------------------------------------------------------------------
-# ReadlineInput — Input widget with Emacs/readline keybindings
+# PromptInput — TextArea with readline keybindings, wrapping, and Enter submit
 # ---------------------------------------------------------------------------
 
-class ReadlineInput(Input):
-    """Input widget with Emacs-style keybindings."""
+class PromptInput(TextArea):
+    """Multi-line input widget with Emacs-style keybindings and Enter-to-submit."""
 
-    BINDINGS = [
-        Binding("ctrl+a", "home", "Home", show=False),
-        Binding("ctrl+e", "end", "End", show=False),
-        Binding("ctrl+f", "cursor_right", "Forward char", show=False),
-        Binding("ctrl+b", "cursor_left", "Back char", show=False),
-        Binding("ctrl+k", "delete_right_all", "Kill to end", show=False),
-        Binding("ctrl+u", "delete_left_all", "Kill to start", show=False),
-        Binding("ctrl+w", "delete_left_word", "Delete word back", show=False),
-        Binding("ctrl+h", "delete_left", "Backspace", show=False),
-    ]
+    class Submitted(Message):
+        """Posted when the user presses Enter to submit input."""
+        def __init__(self, value: str) -> None:
+            super().__init__()
+            self.value = value
+
+    def __init__(self, *, placeholder="", id=None):
+        super().__init__(
+            "",
+            soft_wrap=True,
+            show_line_numbers=False,
+            theme="css",
+            tab_behavior="focus",
+            id=id,
+            placeholder=placeholder,
+            compact=True,
+        )
+        self._placeholder_text = placeholder
+
+    # -- Compatibility properties for code that expects Input-like API --
+
+    @property
+    def value(self):
+        return self.text
+
+    @value.setter
+    def value(self, val):
+        self.text = val
+
+    @property
+    def cursor_position(self):
+        row, col = self.cursor_location
+        # Convert to flat character offset
+        lines = self.text.split("\n")
+        pos = sum(len(lines[i]) + 1 for i in range(row)) + col
+        return pos
+
+    @cursor_position.setter
+    def cursor_position(self, pos):
+        # Convert flat offset to (row, col)
+        text = self.text
+        if pos >= len(text):
+            lines = text.split("\n")
+            self.cursor_location = (len(lines) - 1, len(lines[-1]))
+        else:
+            consumed = 0
+            for i, line in enumerate(text.split("\n")):
+                if consumed + len(line) >= pos:
+                    self.cursor_location = (i, pos - consumed)
+                    return
+                consumed += len(line) + 1  # +1 for newline
+            # Fallback: end of text
+            lines = text.split("\n")
+            self.cursor_location = (len(lines) - 1, len(lines[-1]))
+
+    @property
+    def placeholder(self):
+        return self._placeholder_text
+
+    @placeholder.setter
+    def placeholder(self, val):
+        self._placeholder_text = val
+        # TextArea has a placeholder reactive, set it directly
+        TextArea.placeholder.fset(self, val)
+
+    # -- Key handling --
+
+    def _on_key(self, event):
+        """Intercept Enter to submit, Shift+Enter for newline, plus readline bindings."""
+        key = event.key
+
+        if key == "enter":
+            # Submit the input
+            text = self.text
+            self.text = ""
+            self.post_message(self.Submitted(text))
+            event.prevent_default()
+            event.stop()
+            return
+
+        if key == "shift+enter":
+            # Insert a newline (let TextArea handle it as normal Enter)
+            self.insert("\n")
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Emacs/readline keybindings
+        if key == "ctrl+a":
+            # Move to start of current line
+            row, _ = self.cursor_location
+            self.cursor_location = (row, 0)
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+e":
+            # Move to end of current line
+            row, _ = self.cursor_location
+            lines = self.text.split("\n")
+            self.cursor_location = (row, len(lines[row]))
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+f":
+            self.action_cursor_right()
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+b":
+            self.action_cursor_left()
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+k":
+            # Kill to end of line
+            row, col = self.cursor_location
+            lines = self.text.split("\n")
+            line = lines[row]
+            if col < len(line):
+                # Delete from cursor to end of line
+                lines[row] = line[:col]
+                self.text = "\n".join(lines)
+                self.cursor_location = (row, col)
+            elif row < len(lines) - 1:
+                # At end of line, join with next line
+                lines[row] = line + lines[row + 1]
+                del lines[row + 1]
+                self.text = "\n".join(lines)
+                self.cursor_location = (row, col)
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+u":
+            # Kill to start of line
+            row, col = self.cursor_location
+            lines = self.text.split("\n")
+            lines[row] = lines[row][col:]
+            self.text = "\n".join(lines)
+            self.cursor_location = (row, 0)
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+w":
+            # Delete word backward
+            row, col = self.cursor_location
+            lines = self.text.split("\n")
+            line = lines[row]
+            before = line[:col]
+            # Skip trailing spaces, then delete word chars
+            i = len(before) - 1
+            while i >= 0 and before[i] == " ":
+                i -= 1
+            while i >= 0 and before[i] != " ":
+                i -= 1
+            lines[row] = before[:i + 1] + line[col:]
+            new_col = i + 1
+            self.text = "\n".join(lines)
+            self.cursor_location = (row, new_col)
+            event.prevent_default()
+            event.stop()
+        elif key == "ctrl+h":
+            self.action_delete_left()
+            event.prevent_default()
+            event.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +280,7 @@ class TUIDisplay(Display):
         """Switch the input widget to confirmation mode."""
         app = self._app
         app._confirm_mode = True
-        inp = app.query_one("#prompt", ReadlineInput)
+        inp = app.query_one("#prompt", PromptInput)
         inp.placeholder = prompt_text
         inp.value = ""
         app.query_one("#status-tokens", Static).update(
@@ -184,7 +333,8 @@ Screen {
 }
 
 #input-row {
-    height: 1;
+    height: auto;
+    max-height: 10;
     background: $background;
     padding: 0 1;
 }
@@ -198,10 +348,17 @@ Screen {
 }
 
 #prompt {
-    height: 1;
+    height: auto;
+    min-height: 1;
+    max-height: 8;
     background: $background;
     border: none;
     padding: 0;
+    scrollbar-size: 0 0;
+}
+
+#prompt:focus {
+    border: none;
 }
 
 Rule {
@@ -269,7 +426,7 @@ class AgentApp(App):
             yield Rule(line_style="heavy")
             with Horizontal(id="input-row"):
                 yield Static(">", id="prompt-marker")
-                yield ReadlineInput(placeholder="Type a question...", id="prompt")
+                yield PromptInput(placeholder="Type a question...", id="prompt")
             yield Rule(line_style="heavy")
             with Horizontal(id="status-bar"):
                 yield Static(id="status-model")
@@ -298,10 +455,12 @@ class AgentApp(App):
         from llm_agent.skills import load_all_skills
         self._skills = load_all_skills()
 
-        # Set up delegate
+        # Set up delegate and project context
         from llm_agent.cli import setup_delegate
         setup_delegate(self._client, self._model, self._auto_approve,
                        self._thinking_level)
+        from llm_agent.agent import refresh_project_context
+        refresh_project_context()
 
         # Show welcome
         mode = "YOLO mode" if self._auto_approve else "confirm mode"
@@ -315,7 +474,7 @@ class AgentApp(App):
 
         self._update_status_bar()
         self._update_title()
-        self.query_one("#prompt", ReadlineInput).focus()
+        self.query_one("#prompt", PromptInput).focus()
 
     def _update_title(self):
         """Set terminal title to 'llm-agent — cwd' via OSC escape."""
@@ -403,8 +562,8 @@ class AgentApp(App):
                 inp.cursor_position = len(inp.value)
 
     def on_key(self, event):
-        """Handle arrow keys and Ctrl+P/N for input history."""
-        inp = self.query_one("#prompt", ReadlineInput)
+        """Handle arrow keys and Ctrl+P/N for input history, Ctrl+D for quit/delete."""
+        inp = self.query_one("#prompt", PromptInput)
         if not inp.has_focus:
             return
         if self._confirm_mode:
@@ -416,20 +575,26 @@ class AgentApp(App):
                 inp.action_delete_right()
             event.prevent_default()
         elif event.key in ("up", "ctrl+p"):
-            self._history_prev(inp)
-            event.prevent_default()
+            # Only use history if on the first line (or single-line input)
+            row, _ = inp.cursor_location
+            if row == 0:
+                self._history_prev(inp)
+                event.prevent_default()
         elif event.key in ("down", "ctrl+n"):
-            self._history_next(inp)
-            event.prevent_default()
+            # Only use history if on the last line (or single-line input)
+            row, _ = inp.cursor_location
+            lines = inp.text.split("\n")
+            if row >= len(lines) - 1:
+                self._history_next(inp)
+                event.prevent_default()
 
-    def on_input_submitted(self, event: Input.Submitted):
+    def on_prompt_input_submitted(self, event: PromptInput.Submitted):
         text = event.value.strip()
-        inp = self.query_one("#prompt", ReadlineInput)
-        inp.value = ""
 
         # Handle confirmation mode
         if self._confirm_mode:
             self._confirm_mode = False
+            inp = self.query_one("#prompt", PromptInput)
             inp.placeholder = "Type a question..."
             answer = text.lower()
             self._tui_display._confirm_result = answer in ("", "y", "yes")
@@ -536,7 +701,9 @@ class AgentApp(App):
         self._conversation = result
         last_input = turn_usage.get("last_input", 0)
         old_len = len(self._conversation)
-        self._conversation = trim_conversation(self._conversation, last_input, self._model)
+        self._conversation = trim_conversation(
+            self._conversation, last_input, self._model, client=self._client
+        )
         if len(self._conversation) < old_len:
             removed = old_len - len(self._conversation)
             self._tui_display.status(f"  (trimmed {removed} old messages to fit context window)")

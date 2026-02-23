@@ -33,6 +33,26 @@ CACHED_SYSTEM = [{
     "cache_control": CACHE_CONTROL,
 }]
 
+# Project context — appended to system prompt when available.
+_PROJECT_CONTEXT = None
+
+
+def refresh_project_context(cwd=None):
+    """Detect project context and rebuild the cached system prompt."""
+    global _PROJECT_CONTEXT, CACHED_SYSTEM
+    from llm_agent.context import detect_project_context
+    _PROJECT_CONTEXT = detect_project_context(cwd)
+    if _PROJECT_CONTEXT:
+        full_prompt = SYSTEM_PROMPT + "\n\n" + _PROJECT_CONTEXT
+    else:
+        full_prompt = SYSTEM_PROMPT
+    CACHED_SYSTEM = [{
+        "type": "text",
+        "text": full_prompt,
+        "cache_control": CACHE_CONTROL,
+    }]
+
+
 # Lazy tool cache — rebuilt on first use or after invalidation.
 _CACHED_TOOLS = None
 

@@ -5,6 +5,7 @@ You have these tools:
 - list_directory: List directory contents. Prefer this over ls via run_command.
 - search_files: Search file contents with regex. Prefer this over grep/rg via run_command.
 - glob_files: Find files matching a glob pattern recursively (e.g. **/*.py). Prefer this over find/ls via run_command for file discovery.
+- file_outline: Show the structure of a file (classes, functions, methods with line numbers) without reading the full content. Use this to understand large files before diving in with read_file.
 - read_url: Fetch a web page and return its text content. Prefer this over curl via run_command when you need to read a web page.
 - web_search: Search the web and return result titles, URLs, and snippets. Use this when you need to look something up online rather than fetching a known URL.
 - write_file: Create or overwrite a file. Use for creating new files.

@@ -92,20 +92,107 @@ def estimate_tokens(messages):
     return total_chars // 4
 
 
-def trim_conversation(conversation, last_input_tokens, model):
-    """Trim oldest message rounds to keep token usage within context budget."""
+def trim_conversation(conversation, last_input_tokens, model, client=None):
+    """Trim oldest message rounds to keep token usage within context budget.
+
+    If client is provided, summarizes the dropped messages and prepends the
+    summary to the trimmed conversation so the model retains key context.
+    """
     budget = int(CONTEXT_WINDOWS.get(model, 200_000) * CONTEXT_BUDGET)
     if last_input_tokens <= budget:
         return conversation
     excess = last_input_tokens - budget
     trimmed = list(conversation)
+    dropped = []
     while trimmed and excess > 0:
         round_end = 1
         while round_end < len(trimmed) and trimmed[round_end]["role"] != "user":
             round_end += 1
+        dropped.extend(trimmed[:round_end])
         excess -= estimate_tokens(trimmed[:round_end])
         trimmed = trimmed[round_end:]
+
+    # Summarize dropped messages if we have a client and substantive content
+    if client and dropped and estimate_tokens(dropped) > 200:
+        summary = _summarize_dropped(client, model, dropped)
+        if summary:
+            trimmed.insert(0, {
+                "role": "user",
+                "content": f"[Earlier context summary]\n{summary}",
+            })
+
     return trimmed
+
+
+def _summarize_dropped(client, model, messages):
+    """Ask the model to summarize dropped conversation messages."""
+    # Build a text representation of the dropped messages
+    text_parts = []
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            text_parts.append(f"{role}: {content[:2000]}")
+        elif isinstance(content, list):
+            for block in content:
+                if block.get("type") == "text":
+                    text_parts.append(f"{role}: {block['text'][:2000]}")
+                elif block.get("type") == "tool_use":
+                    text_parts.append(f"{role}: [tool: {block.get('name', '?')}]")
+                elif block.get("type") == "tool_result":
+                    result_text = str(block.get("content", ""))[:500]
+                    text_parts.append(f"{role}: [tool result: {result_text}]")
+
+    dropped_text = "\n".join(text_parts)
+    # Cap the input to avoid a huge summarization request
+    if len(dropped_text) > 8000:
+        dropped_text = dropped_text[:8000] + "\n...(truncated)"
+
+    prompt = (
+        "Summarize the key decisions, findings, files discussed, and important "
+        "context from this conversation segment in 3-5 concise bullet points. "
+        "Focus on information that would be needed to continue the conversation.\n\n"
+        f"{dropped_text}"
+    )
+
+    try:
+        if is_openai_model(model):
+            from llm_agent.openai_agent import openai_agent_turn
+            msgs, _ = openai_agent_turn(
+                client, model,
+                [{"role": "user", "content": prompt}],
+                auto_approve=True, tools=[], tool_registry={},
+            )
+        elif is_gemini_model(model):
+            from llm_agent.gemini_agent import gemini_agent_turn
+            msgs, _ = gemini_agent_turn(
+                client, model,
+                [{"role": "user", "content": prompt}],
+                auto_approve=True, tools=[], tool_registry={},
+            )
+        else:
+            from llm_agent.agent import agent_turn
+            msgs, _ = agent_turn(
+                client, model,
+                [{"role": "user", "content": prompt}],
+                auto_approve=True, tools=[], tool_registry={},
+                system_prompt="You are a concise summarizer. Output only bullet points.",
+            )
+
+        # Extract the summary text from the response
+        for msg in reversed(msgs):
+            if msg.get("role") == "assistant":
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    return content
+                elif isinstance(content, list):
+                    texts = [b["text"] for b in content
+                             if b.get("type") == "text" and b.get("text")]
+                    if texts:
+                        return "\n".join(texts)
+    except Exception:
+        pass
+    return None
 
 
 def is_gemini_model(model):
@@ -413,7 +500,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
         conversation = result
         last_input = turn_usage.get("last_input", 0)
         old_len = len(conversation)
-        conversation = trim_conversation(conversation, last_input, model)
+        conversation = trim_conversation(conversation, last_input, model, client=client)
         if len(conversation) < old_len:
             removed = old_len - len(conversation)
             display.status(f"  (trimmed {removed} old messages to fit context window)")
@@ -500,6 +587,8 @@ def main():
     thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
     client = make_client(model)
     setup_delegate(client, model, auto_approve=args.yolo, thinking_level=thinking)
+    from llm_agent.agent import refresh_project_context
+    refresh_project_context()
 
     if args.c:
         _, turn_usage = run_question(

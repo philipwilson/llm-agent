@@ -82,10 +82,11 @@ llm_agent/
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion
     agents.py           — subagent definitions, custom agent loading, run_subagent
+    context.py          — project context detection (project type, git, .agent.md)
     skills.py           — skill parsing, discovery, rendering (/slash commands)
     formatting.py       — colour helpers, output truncation, token formatting
     display.py          — Display protocol, get_display/set_display singleton
-    tui.py              — Textual TUI app, TUIDisplay, ReadlineInput, light theme
+    tui.py              — Textual TUI app, TUIDisplay, PromptInput, light theme
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
         __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set()
@@ -94,6 +95,7 @@ llm_agent/
         list_directory.py — SCHEMA + handle
         search_files.py — SCHEMA + handle
         glob_files.py   — SCHEMA + handle
+        file_outline.py — SCHEMA + handle (file structure with line numbers)
         read_url.py     — SCHEMA + handle
         web_search.py   — SCHEMA + handle
         write_file.py   — SCHEMA + handle
@@ -130,13 +132,14 @@ The key flow:
 
 ## Tools
 
-The model has ten tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has eleven tools. Read-only tools run without confirmation; mutating tools always require it.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
 - **`list_directory`** — lists directory entries with type indicators and file sizes. Optional `hidden` flag.
 - **`search_files`** — regex search over file contents using ripgrep (falls back to grep). Supports glob filtering and result cap.
 - **`glob_files`** — finds files matching a glob pattern recursively using Python's `glob.glob()`. Supports `**` for recursive matching. Returns sorted relative paths, capped at 200 results by default.
+- **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Useful for understanding large files before diving in.
 - **`read_url`** — fetches a web page via curl, converts HTML to plain text via lynx/w3m (regex fallback). Returns title, final URL, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via DuckDuckGo HTML (no API key needed). Returns numbered results with titles, URLs, and snippets. Default 8 results.
 
@@ -260,16 +263,16 @@ Interactive mode uses a Textual-based TUI by default (falls back to readline if 
 +-------------------------------------------+
 |     RichLog (scrollable conversation)     |
 +━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━+
-| > [ReadlineInput]                         |
+| > [PromptInput — wraps, auto-grows]       |
 +━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━+
 | model (mode) |   token usage  | context % |
 +-------------------------------------------+
 ```
 
 **Key components:**
-- **`AgentApp(App)`** — main Textual app; composes `RichLog`, `ReadlineInput`, status bar
+- **`AgentApp(App)`** — main Textual app; composes `RichLog`, `PromptInput`, status bar
 - **`TUIDisplay(Display)`** — routes all output to widgets via `call_from_thread()`
-- **`ReadlineInput(Input)`** — Emacs/readline keybindings (Ctrl+A/E/F/B/D/K/U/W/H/P/N)
+- **`PromptInput(TextArea)`** — wrapping, auto-growing input with Emacs/readline keybindings (Ctrl+A/E/F/B/D/K/U/W/H). Enter submits, Shift+Enter inserts newline. Auto-grows up to 8 lines.
 - **Worker thread** — `run_question()` runs synchronously in a Textual `@work(thread=True)` worker
 - **Light theme** — white background, green accents, light gray status bar (`agent-light`)
 
@@ -309,7 +312,8 @@ Updated after each agent turn via `_update_status_bar()`.
 - **Readline** — Emacs-style line editing and persistent history (`~/.agent_history`, 1000 entries) in both TUI and readline REPL modes
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
 - **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
-- **Token-budget conversation trimming** — after each question, if the API-reported input token count exceeds 80% of the model's context window, the oldest message rounds are trimmed to bring usage under budget. This replaces a fixed message-count limit with a budget that adapts to both model capacity and actual message sizes.
+- **Token-budget conversation trimming** — after each question, if the API-reported input token count exceeds 80% of the model's context window, the oldest message rounds are trimmed to bring usage under budget. Before discarding, the dropped messages are summarized by the model and the summary is prepended as a `[Earlier context summary]` message so the agent retains key decisions and findings.
+- **Project context auto-detection** — at startup, the system prompt is augmented with project context detected from the working directory: project type (from `pyproject.toml`, `package.json`, `Cargo.toml`, etc.), git branch/status/recent commits, and `AGENTS.md` convention file if present. This is handled by `context.py` → `agent.py:refresh_project_context()`.
 - **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
 

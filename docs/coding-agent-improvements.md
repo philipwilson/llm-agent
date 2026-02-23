@@ -10,13 +10,13 @@ All three improvements have been implemented in `edit_file.py`:
 - ~~**Multi-edit batching**~~ — `edits` array parameter accepts multiple operations (string match and/or line-range) applied atomically. All edits validated before any are applied; overlapping edits are rejected. Single unified diff preview with one confirmation prompt.
 - ~~**Fuzzy matching fallback**~~ — When `old_string` has no exact match, whitespace-normalized matching is tried automatically (collapses runs of spaces/tabs, strips trailing whitespace). Preview shows "(matched after whitespace normalization)".
 
-## 2. Project context awareness
+## 2. ~~Project context awareness~~ (DONE — v0.12.1)
 
-The agent starts every session blind. It could automatically detect and surface project context.
+All three improvements have been implemented in `context.py` + `agent.py`:
 
-- **Auto-detect project type** on first turn — look for `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Makefile`, etc. Inject a brief project summary into the system prompt (language, framework, test command, entry points).
-- **Convention file support** — Load a `.agent.md` or similar project-level instruction file (like CLAUDE.md) into the system prompt automatically. This already exists as CLAUDE.md for Claude Code, but `llm-agent` doesn't have its own equivalent.
-- **Git context** — Auto-include current branch, recent commits, and dirty-file list at session start. The agent frequently needs this and currently has to `run_command` to get it.
+- ~~**Auto-detect project type**~~ — Detects `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `CMakeLists.txt`, `Makefile` and extracts project name. Injected into system prompt at startup via `refresh_project_context()`.
+- ~~**Convention file support**~~ — Loads `AGENTS.md` from the working directory into the system prompt if present.
+- ~~**Git context**~~ — Auto-includes current branch, uncommitted change count, and last 5 commit summaries.
 
 ## 3. Dedicated code navigation tools
 
@@ -24,15 +24,15 @@ The regex-based `search_files` works but is crude for code navigation.
 
 - **`find_definition`** — Find where a symbol (function, class, variable) is defined. Could use `ctags`, tree-sitter, or even `grep` with language-aware patterns (e.g., `def foo`, `function foo`, `class Foo`). Much more reliable than raw regex for the model.
 - **`find_references`** — Find all usages of a symbol. Distinct from grep because it can exclude definitions and comments.
-- **`file_outline`** — Return the structure of a file (classes, functions, methods with line numbers) without reading the entire file. Lets the agent understand a 2000-line file without consuming 2000 lines of context.
+- ~~**`file_outline`**~~ — DONE (v0.12.1). Regex-based parser for Python, JS/TS, Go, Rust, Java, Ruby, C/C++. Returns classes, functions, methods with line numbers and nesting.
 
-These could be implemented pragmatically with tree-sitter-based parsing for common languages, falling back to regex patterns.
+`find_definition` and `find_references` could be implemented pragmatically with tree-sitter-based parsing for common languages, falling back to regex patterns.
 
 ## 4. Better context management
 
 The current trimming (drop oldest messages when over 80% budget) loses important context.
 
-- **Summarize before discarding** — Before trimming old messages, ask the model (or a small/fast model) to produce a summary of what was discussed and decided. Prepend the summary as a system-injected message so the agent retains key context.
+- ~~**Summarize before discarding**~~ — DONE (v0.12.1). When trimming drops messages, they are first summarized by the model and the summary is prepended as a `[Earlier context summary]` message. Falls back to silent drop if the client is unavailable or the dropped content is trivial (<200 estimated tokens).
 - **File content deduplication** — If the agent has read the same file 3 times across the conversation, only the most recent read needs to stay verbatim. Earlier reads can be collapsed to "read file X (see later read for current contents)."
 - **Tool result compression** — Large `run_command` or `search_files` outputs could be summarized more aggressively after they've been processed. The 200-line truncation in `formatting.py` helps, but it's applied at generation time, not retroactively as context pressure grows.
 
@@ -78,6 +78,6 @@ The current `system_prompt.txt` is 41 lines and quite generic. For a coding-focu
 Highest impact with minimum effort:
 
 1. ~~**Line-range editing**~~ — DONE
-2. **File outline tool** — moderate effort, dramatically reduces context consumption on large files
-3. **Project context auto-detection** — small addition to `cli.py`, makes the agent useful faster in every session
-4. **Conversation summarization on trim** — moderate effort, prevents the agent from "forgetting" important decisions mid-session
+2. ~~**File outline tool**~~ — DONE
+3. ~~**Project context auto-detection**~~ — DONE
+4. ~~**Conversation summarization on trim**~~ — DONE
