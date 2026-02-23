@@ -49,6 +49,19 @@ ATTACHMENT_TYPES = {
 }
 HISTORY_FILE = os.path.expanduser("~/.agent_history")
 HISTORY_SIZE = 1000
+
+def set_terminal_title(title):
+    """Set the terminal window title via OSC escape sequence."""
+    sys.stdout.write(f"\033]0;{title}\007")
+    sys.stdout.flush()
+
+def update_terminal_title():
+    """Set the terminal title to 'llm-agent — cwd'."""
+    set_terminal_title(f"llm-agent — {base.shell.cwd}")
+
+def reset_terminal_title():
+    """Reset the terminal title to the default."""
+    set_terminal_title("")
 MAX_STEPS = 20
 CONTEXT_WINDOWS = {
     "claude-opus-4-6": 200_000,
@@ -279,6 +292,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
     skills = load_all_skills()
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+    update_terminal_title()
 
     while True:
         try:
@@ -391,6 +405,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
 
         if result is None:
             # Cancelled -- don't update conversation history
+            update_terminal_title()
             continue
 
         # Keep the conversation history for follow-up questions,
@@ -402,6 +417,9 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
         if len(conversation) < old_len:
             removed = old_len - len(conversation)
             display.status(f"  (trimmed {removed} old messages to fit context window)")
+        update_terminal_title()
+
+    reset_terminal_title()
 
 
 def setup_delegate(client, model, auto_approve, thinking_level):

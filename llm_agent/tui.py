@@ -315,7 +315,20 @@ class AgentApp(App):
         ))
 
         self._update_status_bar()
+        self._update_title()
         self.query_one("#prompt", ReadlineInput).focus()
+
+    def _update_title(self):
+        """Set terminal title to 'llm-agent — cwd' via OSC escape."""
+        from llm_agent.tools.base import shell
+        title = f"llm-agent — {shell.cwd}"
+        # Write directly to the terminal, bypassing Textual's stdout capture
+        try:
+            with open("/dev/tty", "w") as tty:
+                tty.write(f"\033]0;{title}\007")
+                tty.flush()
+        except OSError:
+            pass
 
     def _update_status_bar(self, turn_usage=None):
         # Model + mode
@@ -498,6 +511,7 @@ class AgentApp(App):
             self._session_usage[key] += turn_usage[key]
 
         self.call_from_thread(self._update_status_bar, turn_usage)
+        self.call_from_thread(self._update_title)
 
         if result is None:
             return
@@ -590,6 +604,10 @@ class AgentApp(App):
 
 def run_tui(client, model, auto_approve=False, thinking_level=None):
     """Launch the Textual TUI."""
+    from llm_agent.cli import reset_terminal_title
     app = AgentApp(client, model, auto_approve=auto_approve,
                    thinking_level=thinking_level)
-    app.run()
+    try:
+        app.run()
+    finally:
+        reset_terminal_title()
