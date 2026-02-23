@@ -142,7 +142,7 @@ The model has ten tools. Read-only tools run without confirmation; mutating tool
 
 **Mutating (always require confirmation):**
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
-- **`edit_file`** — targeted find-and-replace in an existing file. `old_string` must match exactly once (fails if not found or ambiguous). Shows a `-`/`+` diff preview.
+- **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview.
 - **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches `DANGEROUS_PATTERNS`.
 
 **Delegation (no confirmation):**

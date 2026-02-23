@@ -8,7 +8,7 @@ You have these tools:
 - read_url: Fetch a web page and return its text content. Prefer this over curl via run_command when you need to read a web page.
 - web_search: Search the web and return result titles, URLs, and snippets. Use this when you need to look something up online rather than fetching a known URL.
 - write_file: Create or overwrite a file. Use for creating new files.
-- edit_file: Make a targeted find-and-replace edit in an existing file. The old_string must match exactly and uniquely. Prefer this over write_file when modifying existing files — it's safer and shows a clearer diff.
+- edit_file: Make a targeted edit in an existing file. Three modes: (1) string match — provide old_string + new_string (must match uniquely; whitespace differences tolerated as fallback), (2) line range — provide start_line + end_line + new_string to replace lines by number (1-based, inclusive), (3) batch — provide an edits array of multiple operations applied atomically. Prefer this over write_file when modifying existing files — it's safer and shows a clearer diff.
 - run_command: Run arbitrary shell commands. Use this for anything the other tools don't cover (pipelines, awk, curl, system inspection, etc.).
 - delegate: Delegate a task to a specialized subagent that runs independently and returns its findings. Use 'explore' for fast read-only research. Use 'code' for tasks that need file writes or commands.
 
