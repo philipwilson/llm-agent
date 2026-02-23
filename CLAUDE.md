@@ -45,6 +45,7 @@ llm-agent -m gemini-flash
 llm-agent -m gemini-pro
 llm-agent -m gpt-4o
 llm-agent -m gpt-4o-mini
+llm-agent -m gpt-5.2
 llm-agent -m o3
 llm-agent -m o4-mini
 
@@ -113,8 +114,8 @@ The agent is split across several modules:
 The key flow:
 
 1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`), creates API client, dispatches to single-shot or interactive mode
-2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn` (or `gemini_agent_turn`) in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
-3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history and session-level token stats
+2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn`, `gemini_agent_turn`, or `openai_agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
+3. **`agent_loop()`** (`cli.py`) — interactive REPL that calls `run_question` repeatedly, maintains conversation history, session-level token stats, and skill routing
 4. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
 5. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
 
@@ -221,7 +222,7 @@ Vertex AI Anthropic models use bare names without `@date` suffixes: `claude-opus
 
 Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `gemini-3.1-pro-preview`.
 
-OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `o3`, `o4-mini`.
+OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `gpt-5.2`, `o3`, `o4-mini`.
 
 ## Provider Architecture
 
@@ -237,6 +238,6 @@ Messages are stored internally in Anthropic format. Provider-specific modules co
 - `tool_use` blocks → `tool_calls` array on assistant message (arguments as JSON string)
 - `tool_result` blocks → separate `role: "tool"` messages with `tool_call_id`
 - `input_schema` → `parameters` in function tool format
-- Reasoning models (`o3`, `o4-mini`) use `max_completion_tokens` instead of `max_tokens`
+- Reasoning models (`gpt-5.2`, `o3`, `o4-mini`) use `max_completion_tokens` instead of `max_tokens`
 
 Provider SDKs (`google-genai`, `openai`) are lazy-imported only when the corresponding model is selected. Switching providers via `/model` recreates the client and clears the conversation.
