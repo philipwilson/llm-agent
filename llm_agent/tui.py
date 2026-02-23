@@ -245,6 +245,10 @@ Rule {
 class AgentApp(App):
     CSS = APP_CSS
     TITLE = "llm-agent"
+    BINDINGS = [
+        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+q", "quit", "Quit", show=False),
+    ]
 
     def __init__(self, client, model, auto_approve=False, thinking_level=None):
         super().__init__()
@@ -258,6 +262,7 @@ class AgentApp(App):
         self._tui_display = None
         self._history = []
         self._history_index = -1
+        self._last_response = ""  # last assistant text, for /copy
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -306,7 +311,7 @@ class AgentApp(App):
             f"{bold('Agent ready')} {dim(f'(model: {self._model}, {mode})')}"
         ))
         log.write(Text.from_ansi(
-            dim("Type a question, /clear, /model, /thinking, /skills, /version, or 'quit'.")
+            dim("Type a question, /clear, /copy, /model, /thinking, /skills, /version, or 'quit'.")
         ))
 
         self._update_status_bar()
@@ -456,6 +461,14 @@ class AgentApp(App):
             self._handle_skills_command()
             return
 
+        if text == "/copy":
+            if self._last_response:
+                self.copy_to_clipboard(self._last_response)
+                log.write(Text.from_ansi(dim("(last response copied to clipboard)")))
+            else:
+                log.write(Text.from_ansi(dim("(no response to copy)")))
+            return
+
         if text.startswith("/"):
             parts = text.split(None, 1)
             skill_name = parts[0][1:]
@@ -488,6 +501,18 @@ class AgentApp(App):
 
         if result is None:
             return
+
+        # Extract last assistant text for /copy
+        for msg in reversed(result):
+            if msg.get("role") == "assistant":
+                content = msg.get("content")
+                if isinstance(content, str):
+                    self._last_response = content
+                elif isinstance(content, list):
+                    texts = [b["text"] for b in content if b.get("type") == "text" and b.get("text")]
+                    if texts:
+                        self._last_response = "\n".join(texts)
+                break
 
         self._conversation = result
         last_input = turn_usage.get("last_input", 0)
