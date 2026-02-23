@@ -28,6 +28,11 @@ MODELS = {
     "haiku": "claude-haiku-4-5",
     "gemini-flash": "gemini-2.5-flash",
     "gemini-pro": "gemini-3.1-pro-preview",
+    "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
+    "gpt-5.2": "gpt-5.2",
+    "o3": "o3",
+    "o4-mini": "o4-mini",
 }
 DEFAULT_MODEL = "sonnet"
 DEFAULT_THINKING = {
@@ -50,6 +55,11 @@ CONTEXT_WINDOWS = {
     "claude-haiku-4-5": 200_000,
     "gemini-2.5-flash": 1_000_000,
     "gemini-3.1-pro-preview": 1_000_000,
+    "gpt-4o": 128_000,
+    "gpt-4o-mini": 128_000,
+    "gpt-5.2": 400_000,
+    "o3": 200_000,
+    "o4-mini": 200_000,
 }
 CONTEXT_BUDGET = 0.80
 
@@ -86,6 +96,10 @@ def trim_conversation(conversation, last_input_tokens, model):
 
 def is_gemini_model(model):
     return model.startswith("gemini-")
+
+
+def is_openai_model(model):
+    return model in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini")
 
 
 def parse_attachments(text):
@@ -158,10 +172,23 @@ def setup_readline():
 def make_client(model):
     """Create an API client for the given model.
 
+    For OpenAI models, uses the openai SDK with OPENAI_API_KEY.
     For Gemini models, uses the google-genai SDK with GOOGLE_API_KEY.
     For Anthropic models, uses the direct API if ANTHROPIC_API_KEY is set,
     otherwise falls back to Vertex AI (requires ANTHROPIC_VERTEX_PROJECT_ID).
     """
+    if is_openai_model(model):
+        try:
+            import openai
+        except ImportError:
+            print("Install openai: pip install 'llm-agent[openai]'")
+            sys.exit(1)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            print("Set OPENAI_API_KEY for OpenAI models.")
+            sys.exit(1)
+        return openai.OpenAI(api_key=api_key)
+
     if is_gemini_model(model):
         try:
             from google import genai
@@ -211,7 +238,10 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
     messages = list(conversation)
     steps = 0
 
-    if is_gemini_model(model):
+    if is_openai_model(model):
+        from llm_agent.openai_agent import openai_agent_turn
+        turn_fn = openai_agent_turn
+    elif is_gemini_model(model):
         from llm_agent.gemini_agent import gemini_agent_turn
         turn_fn = gemini_agent_turn
     else:
@@ -275,7 +305,13 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 print(dim(f"  available: {', '.join(MODELS.keys())}"))
             elif parts[1] in MODELS:
                 new_model = MODELS[parts[1]]
-                if is_gemini_model(new_model) != is_gemini_model(model):
+                old_provider = ("gemini" if is_gemini_model(model)
+                                else "openai" if is_openai_model(model)
+                                else "anthropic")
+                new_provider = ("gemini" if is_gemini_model(new_model)
+                                else "openai" if is_openai_model(new_model)
+                                else "anthropic")
+                if new_provider != old_provider:
                     client = make_client(new_model)
                     conversation = []
                     print(dim(f"(switched to {new_model}, conversation cleared)"))

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Python agent loop that uses LLMs to answer user questions by exploring the filesystem and running Unix commands. Supports Anthropic Claude (direct API and Vertex AI) and Google Gemini models.
+A Python agent loop that uses LLMs to answer user questions by exploring the filesystem and running Unix commands. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
 ## Installation
 
@@ -12,6 +12,7 @@ A Python agent loop that uses LLMs to answer user questions by exploring the fil
 pip install -e .              # editable install
 pip install -e '.[vertex]'    # with Vertex AI support
 pip install -e '.[gemini]'    # with Gemini support
+pip install -e '.[openai]'    # with OpenAI support
 pip install -e '.[all]'       # all providers
 ```
 
@@ -30,6 +31,9 @@ export CLOUD_ML_REGION="us-east5"  # optional, defaults to us-east5
 # Option 3: Google Gemini
 export GOOGLE_API_KEY="your-google-api-key"
 
+# Option 4: OpenAI
+export OPENAI_API_KEY="your-openai-api-key"
+
 # Run with default model (sonnet)
 llm-agent
 
@@ -39,6 +43,10 @@ llm-agent -m haiku
 llm-agent -m sonnet
 llm-agent -m gemini-flash
 llm-agent -m gemini-pro
+llm-agent -m gpt-4o
+llm-agent -m gpt-4o-mini
+llm-agent -m o3
+llm-agent -m o4-mini
 
 # Auto-approve safe commands
 llm-agent -y
@@ -67,6 +75,7 @@ llm_agent/
     cli.py              — main, arg parsing, REPL, run_question, setup_delegate
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
+    openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion
     agents.py           — subagent definitions, custom agent loading, run_subagent
     skills.py           — skill parsing, discovery, rendering (/slash commands)
     formatting.py       — colour helpers, output truncation, token formatting
@@ -97,6 +106,7 @@ The agent is split across several modules:
 - **`cli.py`** — entry point, arg parsing, REPL loop, selects agent turn function based on model
 - **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
 - **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
+- **`openai_agent.py`** — OpenAI streaming, tool schema/message format conversion
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
 - **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`
 
@@ -211,11 +221,22 @@ Vertex AI Anthropic models use bare names without `@date` suffixes: `claude-opus
 
 Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `gemini-3.1-pro-preview`.
 
+OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `o3`, `o4-mini`.
+
 ## Provider Architecture
 
-Messages are stored internally in Anthropic format. For Gemini models, `gemini_agent.py` converts messages at the API boundary:
+Messages are stored internally in Anthropic format. Provider-specific modules convert at the API boundary:
+
+**Gemini** (`gemini_agent.py`):
 - `role: "assistant"` → `role: "model"`
 - `tool_use` blocks → `FunctionCall` parts
 - `tool_result` blocks → `FunctionResponse` parts (tool name stashed in `_name` field)
 
-The `google-genai` package is lazy-imported only when a Gemini model is selected. Switching providers via `/model` recreates the client and clears the conversation.
+**OpenAI** (`openai_agent.py`):
+- System prompt → `role: "developer"` message (works for both standard and reasoning models)
+- `tool_use` blocks → `tool_calls` array on assistant message (arguments as JSON string)
+- `tool_result` blocks → separate `role: "tool"` messages with `tool_call_id`
+- `input_schema` → `parameters` in function tool format
+- Reasoning models (`o3`, `o4-mini`) use `max_completion_tokens` instead of `max_tokens`
+
+Provider SDKs (`google-genai`, `openai`) are lazy-imported only when the corresponding model is selected. Switching providers via `/model` recreates the client and clears the conversation.

@@ -43,6 +43,11 @@ MODEL_ALIASES = {
     "haiku": "claude-haiku-4-5",
     "gemini-flash": "gemini-2.5-flash",
     "gemini-pro": "gemini-3.1-pro-preview",
+    "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
+    "gpt-5.2": "gpt-5.2",
+    "o3": "o3",
+    "o4-mini": "o4-mini",
 }
 
 
@@ -115,14 +120,22 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
 
     # Create a separate client if the provider differs
     sub_client = client
-    is_sub_gemini = sub_model.startswith("gemini-")
-    is_parent_gemini = model.startswith("gemini-")
-    if is_sub_gemini != is_parent_gemini:
+    def _provider(m):
+        if m.startswith("gemini-"):
+            return "gemini"
+        if m in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini"):
+            return "openai"
+        return "anthropic"
+
+    if _provider(sub_model) != _provider(model):
         from llm_agent.cli import make_client
         sub_client = make_client(sub_model)
 
     # Pick the right turn function
-    if is_sub_gemini:
+    if _provider(sub_model) == "openai":
+        from llm_agent.openai_agent import openai_agent_turn
+        turn_fn = openai_agent_turn
+    elif _provider(sub_model) == "gemini":
         from llm_agent.gemini_agent import gemini_agent_turn
         turn_fn = gemini_agent_turn
     else:
