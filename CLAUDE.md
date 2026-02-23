@@ -207,7 +207,7 @@ Branch: !`git branch --show-current`
 - `/skills` — list available skills
 - `/name [args]` — invoke a skill (e.g. `/review src/main.py`)
 
-Built-in commands (`/clear`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills.
+Built-in commands (`/clear`, `/copy`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
 
 **Key files:**
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`
@@ -267,6 +267,14 @@ Interactive mode uses a Textual-based TUI by default (falls back to readline if 
 - Right: context window remaining percentage
 
 Updated after each agent turn via `_update_status_bar()`.
+
+**Copying text:**
+- `/copy` — copies the last assistant response to the system clipboard
+- **Shift+click-drag** — bypasses Textual's mouse capture for terminal-native text selection (works in iTerm2, Terminal.app, etc.)
+- Textual's built-in mouse selection does not work with `RichLog` (virtual `ScrollView` rendering)
+
+**Keyboard shortcuts:**
+- Ctrl+C / Ctrl+Q — quit the app
 
 **Key files:**
 - `tui.py` — `AgentApp`, `TUIDisplay`, `ReadlineInput`, `LIGHT_THEME`, `run_tui()`
