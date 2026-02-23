@@ -2,7 +2,7 @@
 
 Recommendations for making llm-agent a more effective coding agent, grouped by impact area.
 
-## 1. ~~Smarter file editing~~ (DONE — v0.11.7)
+## 1. ~~Smarter file editing~~ (DONE — v0.12.0)
 
 All three improvements have been implemented in `edit_file.py`:
 
@@ -57,21 +57,21 @@ The agent has no memory of what it's changed.
 
 - **Parallel delegation** — Allow the model to spawn multiple `explore` subagents concurrently (e.g., "read the tests while I read the implementation"). This would require making `delegate` accept multiple tasks or supporting concurrent tool execution.
 
-## 8. Richer system prompt for coding
+## 8. ~~Richer system prompt for coding~~ (DONE — v0.12.2)
 
-The current `system_prompt.txt` is 41 lines and quite generic. For a coding-focused agent, it should include:
+System prompt expanded from 42 to 55 lines. Now identifies as a "coding agent" rather than "Unix CLI assistant". New sections:
 
-- Explicit instructions about the edit-test-verify cycle
-- Guidance on reading code before modifying it (it has this, but briefly)
-- Instructions to check for related tests when modifying code
-- Reminders to handle edge cases the user didn't mention
-- Style guidance (match existing code style, don't over-refactor)
+- ~~**Coding workflow**~~ — read related files and trace call paths, check for and run related tests after changes, fix bugs before moving on, consider edge cases.
+- ~~**Style and consistency**~~ — match existing code style (quotes, indentation, naming conventions), don't refactor beyond what was asked.
+- ~~**Read before you write**~~ — expanded to include `file_outline` for large files.
+- Existing "Minimal changes" and "Safety" sections retained.
 
 ## 9. Smaller but useful additions
 
 - **Clipboard / scratch pad tool** — Let the agent store intermediate findings (e.g., "the auth function is at line 234 of server.py") without consuming conversation context for repeated lookups.
 - **`diff_files` tool** — Compare two files or two versions of a file. Useful for understanding changes between branches or reviewing modifications.
 - **Streaming confirmation in TUI** — Show the edit preview *as the model generates it* rather than waiting for the full tool call. This gives the user earlier visibility into what the agent plans to do.
+- ~~**TUI input wrapping**~~ — DONE (v0.12.1). Input now uses `TextArea` with soft wrapping and auto-grow (up to 8 lines) instead of single-line `Input`. Enter submits, Shift+Enter for newlines.
 
 ## Prioritisation
 
