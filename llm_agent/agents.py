@@ -151,7 +151,7 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     print(dim(f"  [{agent_name} subagent starting (model: {sub_model})]"))
 
     extra_kwargs = {}
-    if is_sub_gemini and thinking_level:
+    if _provider(sub_model) == "gemini" and thinking_level:
         extra_kwargs["thinking_level"] = thinking_level
 
     try:
