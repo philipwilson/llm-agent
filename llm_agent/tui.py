@@ -27,7 +27,6 @@ class ReadlineInput(Input):
         Binding("ctrl+e", "end", "End", show=False),
         Binding("ctrl+f", "cursor_right", "Forward char", show=False),
         Binding("ctrl+b", "cursor_left", "Back char", show=False),
-        Binding("ctrl+d", "delete_right", "Delete char", show=False),
         Binding("ctrl+k", "delete_right_all", "Kill to end", show=False),
         Binding("ctrl+u", "delete_left_all", "Kill to start", show=False),
         Binding("ctrl+w", "delete_left_word", "Delete word back", show=False),
@@ -410,7 +409,13 @@ class AgentApp(App):
             return
         if self._confirm_mode:
             return
-        if event.key in ("up", "ctrl+p"):
+        if event.key == "ctrl+d":
+            if inp.value == "":
+                self.exit()
+            else:
+                inp.action_delete_right()
+            event.prevent_default()
+        elif event.key in ("up", "ctrl+p"):
             self._history_prev(inp)
             event.prevent_default()
         elif event.key in ("down", "ctrl+n"):
