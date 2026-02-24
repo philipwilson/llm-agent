@@ -63,6 +63,9 @@ def reset_terminal_title():
     """Reset the terminal title to the default."""
     set_terminal_title("")
 MAX_STEPS = 20
+# Gemini models tend to make single tool calls per turn rather than batching,
+# so they burn through steps faster and need a higher limit.
+MAX_STEPS_GEMINI = 50
 CONTEXT_WINDOWS = {
     "claude-opus-4-6": 200_000,
     "claude-sonnet-4-6": 200_000,
@@ -347,6 +350,8 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
     else:
         turn_fn = agent_turn
 
+    max_steps = MAX_STEPS_GEMINI if is_gemini_model(model) else MAX_STEPS
+
     extra_kwargs = {}
     if is_gemini_model(model) and thinking_level:
         extra_kwargs["thinking_level"] = thinking_level
@@ -360,8 +365,8 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
             if done:
                 break
             steps += 1
-            if steps >= MAX_STEPS:
-                get_display().error(f"\n{yellow(f'(hit step limit of {MAX_STEPS}, stopping)')}")
+            if steps >= max_steps:
+                get_display().error(f"\n{yellow(f'(hit step limit of {max_steps}, stopping)')}")
                 break
     except KeyboardInterrupt:
         get_display().status(f"(interrupted)")

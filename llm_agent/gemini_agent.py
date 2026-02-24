@@ -18,6 +18,16 @@ SYSTEM_PROMPT_FILE = os.path.join(SCRIPT_DIR, "system_prompt.txt")
 with open(SYSTEM_PROMPT_FILE) as _f:
     SYSTEM_PROMPT = _f.read()
 
+# Gemini-specific addendum: encourage delegation and batching since Gemini
+# tends to make one tool call per turn, burning through the step limit.
+GEMINI_ADDENDUM = """
+
+Important — tool use efficiency:
+- Use the delegate tool with the 'explore' agent for research subtasks (reading multiple files, searching code, understanding structure). This is much more efficient than making individual tool calls yourself.
+- For broad tasks like "study this codebase", delegate multiple explore subtasks rather than reading files one at a time.
+- When you need to read or search multiple things, delegate to an explore agent with a clear research question and let it do the multi-step work.
+"""
+
 
 def _convert_tools(anthropic_tools):
     """Convert Anthropic tool schemas to Gemini function declarations."""
@@ -115,7 +125,8 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     # Resolve tools, registry, and system prompt (use defaults if not provided)
     effective_tools = tools if tools is not None else TOOLS
     effective_registry = tool_registry if tool_registry is not None else TOOL_REGISTRY
-    effective_system = system_prompt if system_prompt is not None else SYSTEM_PROMPT
+    default_system = SYSTEM_PROMPT + GEMINI_ADDENDUM
+    effective_system = system_prompt if system_prompt is not None else default_system
 
     contents = _to_gemini_contents(messages)
 
