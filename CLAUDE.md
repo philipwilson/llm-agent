@@ -252,8 +252,9 @@ Branch: !`git branch --show-current`
 **Interactive commands:**
 - `/skills` — list available skills
 - `/name [args]` — invoke a skill (e.g. `/review src/main.py`)
+- `/mcp` — list connected MCP servers and their tools
 
-Built-in commands (`/clear`, `/copy`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
+Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
 
 **Key files:**
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`

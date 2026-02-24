@@ -75,6 +75,7 @@ llm-agent -m gemini-pro --thinking high
 | `/thinking [level]` | Show or set Gemini thinking level (`low`/`medium`/`high`/`off`) |
 | `/skills` | List available skills |
 | `/name [args]` | Invoke a skill (e.g. `/review src/main.py`) |
+| `/mcp` | List connected MCP servers and their tools |
 | `/clear` | Clear conversation history |
 | `/version` | Show version and current model |
 | `Ctrl+C` | Cancel current response |

@@ -126,6 +126,7 @@ llm-agent -t 60                              # 60-second command timeout
 | `/thinking [low\|medium\|high\|off]` | Show or set Gemini thinking level |
 | `/skills` | List available skills |
 | `/name [args]` | Invoke a skill (e.g. `/review src/main.py`) |
+| `/mcp` | List connected MCP servers and their tools |
 | `/clear` | Clear conversation history |
 | `/copy` | Copy last assistant response to clipboard (TUI only) |
 | `/version` | Show version and current model |
@@ -531,7 +532,7 @@ Branch: !`git branch --show-current`
 | `/skill-creator` | Development | Guide for creating new skills |
 | `/imagegen` | Other | Gemini image generation via CLI |
 
-Built-in commands (`/clear`, `/copy`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills.
+Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills.
 
 ---
 
