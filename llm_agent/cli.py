@@ -95,11 +95,30 @@ def estimate_tokens(messages):
     return total_chars // 4
 
 
+def _is_tool_result_message(msg):
+    """Check if a message is a tool-result message (not a real user turn).
+
+    Tool results use role "user" but contain tool_result content blocks.
+    Trimming between a tool_use and its tool_result would produce an invalid
+    message sequence that the API rejects.
+    """
+    if msg.get("role") != "user":
+        return False
+    content = msg.get("content")
+    if isinstance(content, list):
+        return any(b.get("type") == "tool_result" for b in content if isinstance(b, dict))
+    return False
+
+
 def trim_conversation(conversation, last_input_tokens, model, client=None):
     """Trim oldest message rounds to keep token usage within context budget.
 
     If client is provided, summarizes the dropped messages and prepends the
     summary to the trimmed conversation so the model retains key context.
+
+    Rounds are defined as: a real user message (not a tool_result) followed
+    by all subsequent messages until the next real user message.  This ensures
+    we never split a tool_use/tool_result pair.
     """
     budget = int(CONTEXT_WINDOWS.get(model, 200_000) * CONTEXT_BUDGET)
     if last_input_tokens <= budget:
@@ -108,8 +127,13 @@ def trim_conversation(conversation, last_input_tokens, model, client=None):
     trimmed = list(conversation)
     dropped = []
     while trimmed and excess > 0:
+        # Find the end of the current round: advance past the first message,
+        # then skip until we hit a real user message (not a tool_result).
         round_end = 1
-        while round_end < len(trimmed) and trimmed[round_end]["role"] != "user":
+        while round_end < len(trimmed):
+            msg = trimmed[round_end]
+            if msg["role"] == "user" and not _is_tool_result_message(msg):
+                break
             round_end += 1
         dropped.extend(trimmed[:round_end])
         excess -= estimate_tokens(trimmed[:round_end])
