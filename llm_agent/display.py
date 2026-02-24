@@ -29,6 +29,8 @@ class Display:
     def __init__(self):
         self._lock = threading.Lock()
         self._local = threading.local()
+        self._subagent_count = 0
+        self._subagent_lock = threading.Lock()
 
     @contextmanager
     def suppress_streaming(self):
@@ -41,6 +43,20 @@ class Display:
 
     def _is_streaming_suppressed(self):
         return getattr(self._local, "streaming_suppressed", False)
+
+    def subagent_started(self):
+        """Increment the active subagent count."""
+        with self._subagent_lock:
+            self._subagent_count += 1
+
+    def subagent_finished(self):
+        """Decrement the active subagent count."""
+        with self._subagent_lock:
+            self._subagent_count = max(0, self._subagent_count - 1)
+
+    @property
+    def active_subagents(self):
+        return self._subagent_count
 
     def stream_start(self):
         """Called before the first token of a model response."""

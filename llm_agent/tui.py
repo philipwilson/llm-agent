@@ -257,15 +257,17 @@ class TUIDisplay(Display):
         self._app.call_from_thread(self._app_set_streaming, False)
 
     def _app_set_streaming(self, active):
-        """Show/hide a streaming indicator in the prompt marker."""
-        # Don't reset marker to > while the agent is still busy
-        if not active and self._app._busy:
-            return
-        marker = self._app.query_one("#prompt-marker", Static)
-        if active:
-            marker.update(Text("~", style="bold italic #d29922"))
-        else:
-            marker.update(Text(">", style="bold #2e8b57"))
+        """Update streaming state and refresh the prompt marker."""
+        self._app._streaming = active
+        self._app._refresh_marker()
+
+    def subagent_started(self):
+        super().subagent_started()
+        self._app.call_from_thread(self._app._refresh_marker)
+
+    def subagent_finished(self):
+        super().subagent_finished()
+        self._app.call_from_thread(self._app._refresh_marker)
 
     def tool_log(self, message):
         self._write(message)
@@ -422,6 +424,7 @@ class AgentApp(App):
         self._session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
         self._confirm_mode = False
         self._busy = False
+        self._streaming = False
         self._tui_display = None
         self._history = []
         self._history_index = -1
@@ -679,13 +682,29 @@ class AgentApp(App):
         self._run_agent(text)
 
     def _set_busy(self, active):
-        """Show/hide the busy indicator in the prompt marker."""
+        """Update busy state and refresh the prompt marker."""
         self._busy = active
+        self._refresh_marker()
+
+    def _refresh_marker(self):
+        """Update the prompt marker based on current state.
+
+        States:  >  idle (green)
+                 ~  actively streaming (amber)
+                 ·  busy, not streaming (gray)
+                 ·N busy with N active subagents (gray)
+        """
         marker = self.query_one("#prompt-marker", Static)
-        if active:
+        if not self._busy:
+            marker.update(Text(">", style="bold #2e8b57"))
+        elif self._streaming:
             marker.update(Text("~", style="bold italic #d29922"))
         else:
-            marker.update(Text(">", style="bold #2e8b57"))
+            count = self._tui_display.active_subagents if self._tui_display else 0
+            if count > 0:
+                marker.update(Text(f"·{count}", style="bold #6a737d"))
+            else:
+                marker.update(Text("·", style="#6a737d"))
 
     @work(thread=True)
     def _run_agent(self, user_input):

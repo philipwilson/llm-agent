@@ -151,6 +151,7 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
 
     display = get_display()
     display.status(f"  [{agent_name} subagent starting (model: {sub_model})]")
+    display.subagent_started()
 
     extra_kwargs = {}
     if _provider(sub_model) == "gemini" and thinking_level:
@@ -159,25 +160,28 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     # Suppress streaming for subagents — their final answer is returned to
     # the parent rather than streamed.  This prevents garbled output when
     # multiple subagents run concurrently via dispatch_tool_calls().
-    with display.suppress_streaming():
-        try:
-            while True:
-                messages, done = turn_fn(
-                    sub_client, sub_model, messages, auto_approve,
-                    usage_totals=sub_usage,
-                    tools=tools, tool_registry=tool_registry,
-                    system_prompt=system_prompt,
-                    **extra_kwargs,
-                )
-                if done:
-                    break
-                steps += 1
-                if steps >= max_steps:
-                    display.error(f"\n{yellow(f'  (subagent hit step limit of {max_steps})')}")
-                    break
-        except KeyboardInterrupt:
-            display.status(f"  (subagent interrupted)")
-            return "(subagent was interrupted by the user)"
+    try:
+        with display.suppress_streaming():
+            try:
+                while True:
+                    messages, done = turn_fn(
+                        sub_client, sub_model, messages, auto_approve,
+                        usage_totals=sub_usage,
+                        tools=tools, tool_registry=tool_registry,
+                        system_prompt=system_prompt,
+                        **extra_kwargs,
+                    )
+                    if done:
+                        break
+                    steps += 1
+                    if steps >= max_steps:
+                        display.error(f"\n{yellow(f'  (subagent hit step limit of {max_steps})')}")
+                        break
+            except KeyboardInterrupt:
+                display.status(f"  (subagent interrupted)")
+                return "(subagent was interrupted by the user)"
+    finally:
+        display.subagent_finished()
 
     # Print subagent usage
     cache_info = ""
