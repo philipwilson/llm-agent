@@ -210,6 +210,7 @@ class TUIDisplay(Display):
     """Display implementation that routes output to Textual widgets."""
 
     def __init__(self, app):
+        super().__init__()
         self._app = app
         self._confirm_event = threading.Event()
         self._confirm_result = False
@@ -233,15 +234,21 @@ class TUIDisplay(Display):
     # -- Display protocol --
 
     def stream_start(self):
+        if self._is_streaming_suppressed():
+            return
         with self._stream_lock:
             self._stream_buffer = ""
         self._app.call_from_thread(self._app_set_streaming, True)
 
     def stream_token(self, text):
+        if self._is_streaming_suppressed():
+            return
         with self._stream_lock:
             self._stream_buffer += text
 
     def stream_end(self):
+        if self._is_streaming_suppressed():
+            return
         with self._stream_lock:
             buf = self._stream_buffer
             self._stream_buffer = ""
