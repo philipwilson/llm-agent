@@ -258,6 +258,9 @@ class TUIDisplay(Display):
 
     def _app_set_streaming(self, active):
         """Show/hide a streaming indicator in the prompt marker."""
+        # Don't reset marker to > while the agent is still busy
+        if not active and self._app._busy:
+            return
         marker = self._app.query_one("#prompt-marker", Static)
         if active:
             marker.update(Text("~", style="bold italic #d29922"))
@@ -418,6 +421,7 @@ class AgentApp(App):
         self._conversation = []
         self._session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
         self._confirm_mode = False
+        self._busy = False
         self._tui_display = None
         self._history = []
         self._history_index = -1
@@ -674,15 +678,28 @@ class AgentApp(App):
         # Run the question in a worker thread
         self._run_agent(text)
 
+    def _set_busy(self, active):
+        """Show/hide the busy indicator in the prompt marker."""
+        self._busy = active
+        marker = self.query_one("#prompt-marker", Static)
+        if active:
+            marker.update(Text("~", style="bold italic #d29922"))
+        else:
+            marker.update(Text(">", style="bold #2e8b57"))
+
     @work(thread=True)
     def _run_agent(self, user_input):
         """Run the agent in a background thread."""
         from llm_agent.cli import run_question, trim_conversation, CONTEXT_WINDOWS
 
-        result, turn_usage = run_question(
-            self._client, self._model, self._conversation, user_input,
-            self._auto_approve, thinking_level=self._thinking_level,
-        )
+        self.call_from_thread(self._set_busy, True)
+        try:
+            result, turn_usage = run_question(
+                self._client, self._model, self._conversation, user_input,
+                self._auto_approve, thinking_level=self._thinking_level,
+            )
+        finally:
+            self.call_from_thread(self._set_busy, False)
 
         for key in ("input", "output", "cache_read", "cache_create"):
             self._session_usage[key] += turn_usage[key]
