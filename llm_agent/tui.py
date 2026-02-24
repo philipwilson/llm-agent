@@ -85,8 +85,9 @@ class PromptInput(TextArea):
     @placeholder.setter
     def placeholder(self, val):
         self._placeholder_text = val
-        # TextArea has a placeholder reactive, set it directly
-        TextArea.placeholder.fset(self, val)
+        # TextArea.placeholder is a Textual reactive descriptor, not a
+        # Python property — use the descriptor protocol directly.
+        TextArea.placeholder.__set__(self, val)
 
     # -- Key handling --
 
