@@ -88,19 +88,13 @@ def _fuzzy_find(content, old_string):
     norm_pos = norm_content.index(norm_old)
 
     # Map normalized position back to original content position.
-    # Walk both strings in parallel: for each char in normalized content,
-    # track the corresponding position in the original.
-    orig_i = 0
-    norm_i = 0
-    orig_start = None
-
     orig_lines = content.split("\n")
     norm_lines = norm_content.split("\n")
 
-    # Rebuild character offset mapping line-by-line
+    # Rebuild character offset mapping line-by-line: for each char in
+    # normalized content, track the corresponding position in the original.
     orig_offsets = []  # orig_offsets[norm_char_index] = orig_char_index
     orig_pos = 0
-    norm_pos_running = 0
     for orig_line, norm_line in zip(orig_lines, norm_lines):
         oi = 0
         ni = 0
@@ -116,7 +110,6 @@ def _fuzzy_find(content, old_string):
         # Newline character
         orig_offsets.append(orig_pos + len(orig_line))
         orig_pos += len(orig_line) + 1  # +1 for \n
-        norm_pos_running += len(norm_line) + 1
 
     start = orig_offsets[norm_pos] if norm_pos < len(orig_offsets) else None
     end_norm = norm_pos + len(norm_old)

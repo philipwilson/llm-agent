@@ -335,8 +335,7 @@ def run_question(client, model, conversation, user_input, auto_approve=False,
     else:
         content = user_input
 
-    conversation.append({"role": "user", "content": content})
-    messages = list(conversation)
+    messages = list(conversation) + [{"role": "user", "content": content}]
     steps = 0
 
     if is_openai_model(model):
@@ -395,7 +394,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             break
         if user_input.strip() == "/clear":
             conversation = []
-            session_usage = {"input": 0, "output": 0}
+            session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
             display.status("(conversation cleared)")
             continue
         if user_input.strip() == "/version":

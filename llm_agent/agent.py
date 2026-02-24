@@ -182,8 +182,8 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                 # Get usage from the final message
                 final = stream.get_final_message()
                 if usage_totals is not None and final.usage:
-                    usage_totals["input"] += final.usage.input_tokens
-                    usage_totals["output"] += final.usage.output_tokens
+                    usage_totals["input"] = usage_totals.get("input", 0) + final.usage.input_tokens
+                    usage_totals["output"] = usage_totals.get("output", 0) + final.usage.output_tokens
                     cache_read = getattr(final.usage, "cache_read_input_tokens", 0) or 0
                     cache_create = getattr(final.usage, "cache_creation_input_tokens", 0) or 0
                     usage_totals["cache_read"] = usage_totals.get("cache_read", 0) + cache_read

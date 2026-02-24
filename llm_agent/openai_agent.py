@@ -148,6 +148,7 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
         "messages": openai_messages,
         "tools": openai_tools,
         "stream": True,
+        "stream_options": {"include_usage": True},
     }
     max_tokens = MAX_OUTPUT_TOKENS.get(model, 16_384)
     if is_reasoning:
@@ -171,16 +172,20 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
 
             stream = client.chat.completions.create(**api_kwargs)
 
+            usage_recorded = False
+
             for chunk in stream:
+                # Track usage from whichever chunk carries it (once only)
+                if not usage_recorded and chunk.usage and usage_totals is not None:
+                    usage_totals["input"] = usage_totals.get("input", 0) + chunk.usage.prompt_tokens
+                    usage_totals["output"] = usage_totals.get("output", 0) + chunk.usage.completion_tokens
+                    cached = getattr(chunk.usage, "prompt_tokens_details", None)
+                    if cached and getattr(cached, "cached_tokens", 0):
+                        usage_totals["cache_read"] = usage_totals.get("cache_read", 0) + cached.cached_tokens
+                    usage_totals["last_input"] = chunk.usage.prompt_tokens
+                    usage_recorded = True
+
                 if not chunk.choices:
-                    # Final chunk may have only usage
-                    if chunk.usage and usage_totals is not None:
-                        usage_totals["input"] += chunk.usage.prompt_tokens
-                        usage_totals["output"] += chunk.usage.completion_tokens
-                        cached = getattr(chunk.usage, "prompt_tokens_details", None)
-                        if cached and getattr(cached, "cached_tokens", 0):
-                            usage_totals["cache_read"] += cached.cached_tokens
-                        usage_totals["last_input"] = chunk.usage.prompt_tokens
                     continue
 
                 delta = chunk.choices[0].delta
@@ -211,11 +216,6 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                         if tc_delta.function and tc_delta.function.arguments:
                             tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
-                # Usage in stream_options (if available on final chunk)
-                if hasattr(chunk, "usage") and chunk.usage and usage_totals is not None:
-                    usage_totals["input"] += chunk.usage.prompt_tokens
-                    usage_totals["output"] += chunk.usage.completion_tokens
-                    usage_totals["last_input"] = chunk.usage.prompt_tokens
 
             break  # success
 

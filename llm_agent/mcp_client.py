@@ -77,7 +77,7 @@ class MCPManager:
         future = asyncio.run_coroutine_threadsafe(
             self._connect_all(config), self._loop
         )
-        future.result()  # block until all servers connected
+        future.result(timeout=30)  # block until all servers connected
 
         if self._tools:
             from llm_agent.tools import register_mcp_tools
