@@ -218,7 +218,6 @@ class TUIDisplay(Display):
         # its own width, so writing per-batch produces narrow paragraphs.
         self._stream_buffer = ""
         self._stream_lock = threading.Lock()
-        self._stream_char_count = 0
 
     # -- helpers --
 
@@ -236,19 +235,16 @@ class TUIDisplay(Display):
     def stream_start(self):
         with self._stream_lock:
             self._stream_buffer = ""
-            self._stream_char_count = 0
         self._app.call_from_thread(self._app_set_streaming, True)
 
     def stream_token(self, text):
         with self._stream_lock:
             self._stream_buffer += text
-            self._stream_char_count += len(text)
 
     def stream_end(self):
         with self._stream_lock:
             buf = self._stream_buffer
             self._stream_buffer = ""
-            self._stream_char_count = 0
         if buf:
             self._app.call_from_thread(self._app_write, buf)
         self._app.call_from_thread(self._app_set_streaming, False)

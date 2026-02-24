@@ -170,9 +170,12 @@ class MCPManager:
         return future.result()
 
     async def _async_call_tool(self, server_name, tool_name, params):
-        session = self._sessions[server_name]
-        result = await session.call_tool(tool_name, params)
-        return _format_tool_result(result)
+        try:
+            session = self._sessions[server_name]
+            result = await session.call_tool(tool_name, params)
+            return _format_tool_result(result)
+        except Exception as e:
+            return f"Error: MCP tool '{tool_name}' failed: {e}"
 
     def stop(self):
         """Shut down all MCP servers and the event loop."""
@@ -190,6 +193,7 @@ class MCPManager:
         if self._tools:
             from llm_agent.tools import unregister_mcp_tools
             unregister_mcp_tools()
+            self._tools = []
 
     async def _cleanup(self):
         if self._exit_stack:

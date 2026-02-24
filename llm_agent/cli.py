@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-A toy agent loop that uses Claude to answer questions
-by running Unix CLI commands. Supports both the direct Anthropic API
-and Google Vertex AI.
+Agent loop that uses LLMs to answer questions by exploring the filesystem
+and running Unix commands. Supports Anthropic Claude (direct API and
+Vertex AI), Google Gemini, and OpenAI models.
 """
 
 import argparse
