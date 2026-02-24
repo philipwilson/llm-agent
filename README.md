@@ -11,7 +11,8 @@ pip install -e .              # base install (Anthropic direct API)
 pip install -e '.[vertex]'    # with Vertex AI support
 pip install -e '.[gemini]'    # with Gemini support
 pip install -e '.[openai]'    # with OpenAI support
-pip install -e '.[all]'       # all providers
+pip install -e '.[mcp]'       # with MCP tool server support
+pip install -e '.[all]'       # all providers + MCP
 ```
 
 ## Setup
@@ -105,12 +106,35 @@ In yolo mode (`-y`), `run_command` auto-approves unless the command matches know
 
 - **Streaming** -- responses stream to the terminal as they're generated
 - **Working directory tracking** -- `cd` in one command persists to the next
+- **MCP tool servers** -- connect to external MCP servers for additional tools (see below)
 - **Prompt caching** -- system prompt and conversation prefix are cached across API calls
 - **Token tracking** -- per-turn and session totals after each answer
 - **File attachments** -- `@filepath` syntax for images (png, jpg, gif, webp) and PDFs
 - **Readline** -- line editing and persistent history (`~/.agent_history`)
 - **Output truncation** -- command output over 200 lines is trimmed to first/last 100 lines
 - **Skills** -- reusable prompt templates invoked as `/slash` commands (see below)
+
+## MCP Tool Servers
+
+The agent can connect to [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) servers, making their tools available alongside built-in tools. Requires `pip install -e '.[mcp]'`.
+
+Create `.mcp.json` in your project root (or `~/.mcp.json` for user-level config) using the same format as Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {}
+    }
+  }
+}
+```
+
+On startup, the agent connects to each server, discovers its tools, and registers them. You'll see a status line like `[MCP: 22 tools from 1 server]`. MCP tools work with all providers (Anthropic, Gemini, OpenAI) and are available to subagents.
+
+If the `mcp` package is not installed, MCP features are silently skipped.
 
 ## Skills
 
