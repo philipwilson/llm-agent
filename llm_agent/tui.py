@@ -776,6 +776,8 @@ class AgentApp(App):
 
 def run_tui(client, model, auto_approve=False, thinking_level=None):
     """Launch the Textual TUI."""
+    import os as _os
+
     from llm_agent.cli import reset_terminal_title
     app = AgentApp(client, model, auto_approve=auto_approve,
                    thinking_level=thinking_level)
@@ -783,3 +785,8 @@ def run_tui(client, model, auto_approve=False, thinking_level=None):
         app.run()
     finally:
         reset_terminal_title()
+        # Force-exit to avoid hanging on Textual's asyncio thread cleanup.
+        # Without this, _Py_Finalize waits indefinitely for Textual's
+        # non-daemon event loop thread which may be stuck in a file-watching
+        # scandir loop, spinning at 100% CPU.
+        _os._exit(0)
