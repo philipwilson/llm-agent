@@ -57,12 +57,13 @@ The agent has no memory of what it's changed.
 
 - **Parallel delegation** — Allow the model to spawn multiple `explore` subagents concurrently (e.g., "read the tests while I read the implementation"). This would require making `delegate` accept multiple tasks or supporting concurrent tool execution.
 
-## 8. ~~Richer system prompt for coding~~ (DONE — v0.12.2)
+## 8. ~~Richer system prompt for coding~~ (DONE — v0.12.2, v0.12.3)
 
-System prompt expanded from 42 to 55 lines. Now identifies as a "coding agent" rather than "Unix CLI assistant". New sections:
+System prompt expanded from 42 to 65 lines. Now identifies as a "coding agent" rather than "Unix CLI assistant". New sections:
 
 - ~~**Coding workflow**~~ — read related files and trace call paths, check for and run related tests after changes, fix bugs before moving on, consider edge cases.
 - ~~**Style and consistency**~~ — match existing code style (quotes, indentation, naming conventions), don't refactor beyond what was asked.
+- ~~**Git workflow**~~ — commit only when asked, check status/diff/log before committing, stage specific files, never amend/force-push unless asked, never push unless asked, PR creation via `gh`.
 - ~~**Read before you write**~~ — expanded to include `file_outline` for large files.
 - Existing "Minimal changes" and "Safety" sections retained.
 
