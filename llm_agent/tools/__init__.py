@@ -68,13 +68,16 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
         if entry is None:
             output = f"(unknown tool: {name})"
         else:
-            log_fn = entry.get("log")
-            if log_fn:
-                log_fn(params)
-            if entry.get("needs_confirm"):
-                output = entry["handler"](params, auto_approve=auto_approve)
-            else:
-                output = entry["handler"](params)
+            try:
+                log_fn = entry.get("log")
+                if log_fn:
+                    log_fn(params)
+                if entry.get("needs_confirm"):
+                    output = entry["handler"](params, auto_approve=auto_approve)
+                else:
+                    output = entry["handler"](params)
+            except Exception as e:
+                output = f"(error in tool '{name}': {e})"
         display.tool_result(len(output.splitlines()))
         return {
             "type": "tool_result",

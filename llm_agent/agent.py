@@ -109,7 +109,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                tools=None, tool_registry=None, system_prompt=None):
     # Resolve tools, registry, and system prompt (use defaults if not provided)
     if tools is not None:
-        effective_tools = [*tools[:-1], {**tools[-1], "cache_control": CACHE_CONTROL}] if tools else []
+        effective_tools = [*tools[:-1], {**tools[-1], "cache_control": CACHE_CONTROL}] if tools else None
         effective_registry = tool_registry if tool_registry is not None else TOOL_REGISTRY
     else:
         effective_tools = _get_cached_tools()
@@ -137,13 +137,16 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
             current_tool_id = None
             current_tool_name = None
 
-            with client.messages.stream(
+            api_kwargs = dict(
                 model=model,
                 max_tokens=MAX_OUTPUT_TOKENS.get(model, 64_000),
                 system=effective_system,
-                tools=effective_tools,
                 messages=cached_msgs,
-            ) as stream:
+            )
+            if effective_tools is not None:
+                api_kwargs["tools"] = effective_tools
+
+            with client.messages.stream(**api_kwargs) as stream:
                 for event in stream:
                     if event.type == "content_block_start":
                         if event.content_block.type == "text":

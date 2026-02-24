@@ -130,7 +130,10 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
 
     if _provider(sub_model) != _provider(model):
         from llm_agent.cli import make_client
-        sub_client = make_client(sub_model)
+        try:
+            sub_client = make_client(sub_model)
+        except SystemExit:
+            return f"(error: cannot create {_provider(sub_model)} client for subagent '{agent_name}' — missing API key or SDK)"
 
     # Pick the right turn function
     if _provider(sub_model) == "openai":

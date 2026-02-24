@@ -161,21 +161,21 @@ def _summarize_dropped(client, model, messages):
             msgs, _ = openai_agent_turn(
                 client, model,
                 [{"role": "user", "content": prompt}],
-                auto_approve=True, tools=[], tool_registry={},
+                auto_approve=True, tools=None, tool_registry={},
             )
         elif is_gemini_model(model):
             from llm_agent.gemini_agent import gemini_agent_turn
             msgs, _ = gemini_agent_turn(
                 client, model,
                 [{"role": "user", "content": prompt}],
-                auto_approve=True, tools=[], tool_registry={},
+                auto_approve=True, tools=None, tool_registry={},
             )
         else:
             from llm_agent.agent import agent_turn
             msgs, _ = agent_turn(
                 client, model,
                 [{"role": "user", "content": prompt}],
-                auto_approve=True, tools=[], tool_registry={},
+                auto_approve=True, tools=None, tool_registry={},
                 system_prompt="You are a concise summarizer. Output only bullet points.",
             )
 

@@ -191,6 +191,9 @@ class MCPManager:
             result = await session.call_tool(tool_name, params)
             return _format_tool_result(result)
         except Exception as e:
+            # Remove dead session so we don't keep retrying
+            self._sessions.pop(server_name, None)
+            logger.warning("MCP server '%s' removed after error: %s", server_name, e)
             return f"Error: MCP tool '{tool_name}' failed: {e}"
 
     def stop(self):
@@ -218,11 +221,14 @@ class MCPManager:
 
 # Module-level singleton
 _manager = None
+_manager_lock = threading.Lock()
 
 
 def get_mcp_manager():
     """Return the global MCPManager singleton, creating it if needed."""
     global _manager
     if _manager is None:
-        _manager = MCPManager()
+        with _manager_lock:
+            if _manager is None:
+                _manager = MCPManager()
     return _manager
