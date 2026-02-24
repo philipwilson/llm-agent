@@ -1,3 +1,3 @@
 """llm-agent: a Unix CLI agent powered by Claude."""
 
-VERSION = "0.14.7"
+VERSION = "0.14.8"
