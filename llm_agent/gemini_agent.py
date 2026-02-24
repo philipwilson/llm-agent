@@ -6,7 +6,7 @@ import time
 
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
-from llm_agent.tools import TOOLS, TOOL_REGISTRY
+from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
 
 
 MAX_RETRIES = 3
@@ -203,31 +203,12 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     if not function_calls:
         return messages, True
 
-    # Dispatch tool calls (same logic as agent_turn)
+    # Dispatch tool calls (parallel when safe, sequential for confirmations)
     tool_uses = [b for b in content_blocks if b["type"] == "tool_use"]
-    tool_results = []
-    for tool_use in tool_uses:
-        name = tool_use["name"]
-        params = tool_use["input"]
-        entry = effective_registry.get(name)
-        if entry is None:
-            output = f"(unknown tool: {name})"
-        else:
-            log_fn = entry.get("log")
-            if log_fn:
-                log_fn(params)
-            if entry.get("needs_confirm"):
-                output = entry["handler"](params, auto_approve=auto_approve)
-            else:
-                output = entry["handler"](params)
-
-        get_display().tool_result(len(output.splitlines()))
-        tool_results.append({
-            "type": "tool_result",
-            "tool_use_id": tool_use["id"],
-            "_name": name,  # stashed for Gemini FunctionResponse conversion
-            "content": output,
-        })
+    tool_results = dispatch_tool_calls(tool_uses, effective_registry, auto_approve)
+    # Stash tool names for Gemini FunctionResponse conversion
+    for result, use in zip(tool_results, tool_uses):
+        result["_name"] = use["name"]
 
     messages.append({"role": "user", "content": tool_results})
     return messages, False

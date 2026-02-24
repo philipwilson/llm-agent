@@ -89,7 +89,7 @@ llm_agent/
     tui.py              — Textual TUI app, TUIDisplay, PromptInput, light theme
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
-        __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set()
+        __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls()
         base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
         list_directory.py — SCHEMA + handle
@@ -119,7 +119,7 @@ The agent is split across several modules:
 - **`display.py`** — Display protocol abstracting all user-facing output (print/input)
 - **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
-- **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`
+- **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`. `dispatch_tool_calls()` handles parallel execution of safe tools via `ThreadPoolExecutor`
 
 The key flow:
 
@@ -316,6 +316,7 @@ Updated after each agent turn via `_update_status_bar()`.
 - **Project context auto-detection** — at startup, the system prompt is augmented with project context detected from the working directory: project type (from `pyproject.toml`, `package.json`, `Cargo.toml`, etc.), git branch/status/recent commits, and `AGENTS.md` convention file if present. This is handled by `context.py` → `agent.py:refresh_project_context()`.
 - **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
+- **Parallel tool execution** — when the model emits multiple tool calls in one response, `dispatch_tool_calls()` runs read-only and auto-approved tools concurrently via `ThreadPoolExecutor(max_workers=4)`. Tools requiring confirmation run sequentially in the main thread. All three provider modules share this dispatch function.
 
 ## Model Names
 

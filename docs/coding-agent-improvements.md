@@ -51,11 +51,13 @@ The agent has no memory of what it's changed.
 - **`undo` command** — Revert the last file modification (or all modifications). Currently if the agent makes a bad edit, recovery requires manual intervention or a new `edit_file` call that the model has to figure out.
 - **Git-based safety net** — Auto-stash or create a WIP commit before the agent starts modifying files, so the user can always `git checkout` to recover.
 
-## 7. Parallel subagent execution
+## 7. ~~Parallel tool execution~~ (DONE — v0.13.0)
 
-`run_subagent` in `agents.py` is synchronous — one subagent at a time. For coding tasks, you often want to explore multiple files or approaches simultaneously.
+Tool dispatch extracted into `dispatch_tool_calls()` in `tools/__init__.py`, shared by all three provider modules:
 
-- **Parallel delegation** — Allow the model to spawn multiple `explore` subagents concurrently (e.g., "read the tests while I read the implementation"). This would require making `delegate` accept multiple tasks or supporting concurrent tool execution.
+- ~~**Parallel-safe tools run concurrently**~~ — Read-only tools, `delegate`, and auto-approved mutating tools are submitted to a `ThreadPoolExecutor(max_workers=4)`. Multiple `explore` subagents, file reads, or searches run simultaneously.
+- ~~**Sequential tools preserve order**~~ — Tools requiring confirmation (`write_file`, `edit_file`, `run_command` when not in yolo mode) run one at a time in the main thread to avoid overlapping prompts.
+- ~~**Unified dispatch**~~ — The duplicated dispatch loop across `agent.py`, `gemini_agent.py`, and `openai_agent.py` is replaced with a single shared function.
 
 ## 8. ~~Richer system prompt for coding~~ (DONE — v0.12.2, v0.12.3)
 
