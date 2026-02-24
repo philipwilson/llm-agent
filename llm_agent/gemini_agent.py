@@ -23,12 +23,29 @@ def _convert_tools(anthropic_tools):
     """Convert Anthropic tool schemas to Gemini function declarations."""
     from google.genai import types
 
+    # Keys in JSON Schema that Gemini's FunctionDeclaration doesn't accept
+    _STRIP_KEYS = {"$schema", "additionalProperties"}
+
+    def _clean_schema(schema):
+        """Recursively remove unsupported keys from a JSON Schema dict."""
+        if not isinstance(schema, dict):
+            return schema
+        cleaned = {k: v for k, v in schema.items() if k not in _STRIP_KEYS}
+        # Recurse into nested schemas (properties, items, etc.)
+        if "properties" in cleaned:
+            cleaned["properties"] = {
+                k: _clean_schema(v) for k, v in cleaned["properties"].items()
+            }
+        if "items" in cleaned and isinstance(cleaned["items"], dict):
+            cleaned["items"] = _clean_schema(cleaned["items"])
+        return cleaned
+
     declarations = []
     for tool in anthropic_tools:
         declarations.append(types.FunctionDeclaration(
             name=tool["name"],
             description=tool.get("description", ""),
-            parameters=tool["input_schema"],
+            parameters=_clean_schema(tool["input_schema"]),
         ))
     return [types.Tool(function_declarations=declarations)]
 
