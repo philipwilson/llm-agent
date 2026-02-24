@@ -14,7 +14,8 @@ pip install -e '.[vertex]'    # with Vertex AI support
 pip install -e '.[gemini]'    # with Gemini support
 pip install -e '.[openai]'    # with OpenAI support
 pip install -e '.[tui]'       # with Textual TUI
-pip install -e '.[all]'       # all providers + TUI
+pip install -e '.[mcp]'       # with MCP client support
+pip install -e '.[all]'       # all providers + TUI + MCP
 ```
 
 ## Running
@@ -84,12 +85,13 @@ llm_agent/
     agents.py           — subagent definitions, custom agent loading, run_subagent
     context.py          — project context detection (project type, git, .agent.md)
     skills.py           — skill parsing, discovery, rendering (/slash commands)
+    mcp_client.py       — MCP client: server lifecycle, tool discovery, async bridge
     formatting.py       — colour helpers, output truncation, token formatting
     display.py          — Display protocol, get_display/set_display singleton
     tui.py              — Textual TUI app, TUIDisplay, PromptInput, light theme
     system_prompt.txt   — system prompt (edit without touching Python)
     tools/
-        __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls()
+        __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls(), register/unregister_mcp_tools()
         base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
         list_directory.py — SCHEMA + handle
@@ -116,6 +118,7 @@ The agent is split across several modules:
 - **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
 - **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
 - **`openai_agent.py`** — OpenAI streaming, tool schema/message format conversion
+- **`mcp_client.py`** — MCP client manager: server lifecycle, tool discovery, async-to-sync bridge
 - **`display.py`** — Display protocol abstracting all user-facing output (print/input)
 - **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
@@ -123,7 +126,7 @@ The agent is split across several modules:
 
 The key flow:
 
-1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`, `--no-tui`), creates API client, dispatches to single-shot, TUI, or readline REPL mode
+1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`, `--no-tui`), creates API client, initializes MCP servers (if configured), dispatches to single-shot, TUI, or readline REPL mode
 2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn`, `gemini_agent_turn`, or `openai_agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
 3. **`agent_loop()`** (`cli.py`) — readline REPL that calls `run_question` repeatedly, maintains conversation history, session-level token stats, and skill routing
 4. **`AgentApp`** (`tui.py`) — Textual TUI alternative to `agent_loop()`. Runs `run_question()` in a worker thread, routes output via `TUIDisplay`
@@ -150,6 +153,46 @@ The model has eleven tools. Read-only tools run without confirmation; mutating t
 
 **Delegation (no confirmation):**
 - **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
+
+## MCP Client Support
+
+The agent can connect to external [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) servers, making their tools available alongside built-in tools across all providers (Anthropic, Gemini, OpenAI).
+
+**Installation:** `pip install -e '.[mcp]'` (or `'.[all]'`). Without the `mcp` package, MCP features are silently unavailable.
+
+**Configuration:** Uses the same `mcpServers` format as Claude Desktop, read from two locations (project-level takes priority):
+- `.mcp.json` (project root)
+- `~/.mcp.json` (user-level)
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Architecture:** The MCP Python SDK is fully async, but the agent runs synchronously in threads. `MCPManager` solves this with a dedicated asyncio event loop in a daemon thread. Sync wrappers submit coroutines via `asyncio.run_coroutine_threadsafe()` and block for results — this is thread-safe and works with the parallel `dispatch_tool_calls()` executor.
+
+**Tool registration:** MCP tools are added to the global `TOOLS` and `TOOL_REGISTRY` via `register_mcp_tools()`. This means `build_tool_set()` includes them automatically, so subagents get MCP tools by default. Subagent definitions can reference MCP tool names in their `"tools"` list to include/exclude specific ones.
+
+**Name collisions:** If an MCP tool has the same name as a built-in tool or a tool from another server, it is skipped with a warning log (first registration wins).
+
+**Lifecycle:**
+1. `main()` calls `load_mcp_config()` → `MCPManager.start(config)` after `setup_delegate()` and `refresh_project_context()`
+2. On startup: connects to all servers via stdio, discovers tools, registers them in the global registry
+3. During operation: `call_tool()` dispatches to the correct server session
+4. On exit: `MCPManager.stop()` closes all sessions, stops the event loop, and unregisters MCP tools
+
+**Key files:**
+- `mcp_client.py` — `MCPManager`, `load_mcp_config()`, `get_mcp_manager()`, schema/result conversion
+- `tools/__init__.py` — `register_mcp_tools()`, `unregister_mcp_tools()`
+- `cli.py` — MCP startup in `main()`, cleanup via `_stop_mcp()` in all exit paths
+- `tui.py` — MCP cleanup before `os._exit(0)`
 
 ## Subagent System
 
@@ -317,6 +360,7 @@ Updated after each agent turn via `_update_status_bar()`.
 - **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
 - **Parallel tool execution** — when the model emits multiple tool calls in one response, `dispatch_tool_calls()` runs read-only and auto-approved tools concurrently via `ThreadPoolExecutor(max_workers=4)`. Tools requiring confirmation run sequentially in the main thread. All three provider modules share this dispatch function.
+- **MCP tool servers** — external tools from MCP servers (configured via `.mcp.json`) are registered in the global tool registry at startup and available to the model alongside built-in tools. The `mcp` package is optional; without it, MCP features are silently skipped.
 
 ## Model Names
 
