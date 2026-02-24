@@ -14,6 +14,29 @@ from llm_agent.tools import (
     delegate,
 )
 
+# Default timeout (seconds) for tools that don't specify one.
+DEFAULT_TOOL_TIMEOUT = 120
+
+# Per-tool timeouts.  Tools with their own internal timeouts (read_url,
+# web_search, run_command) get a generous outer bound.  Delegate gets a
+# long timeout since subagents run multi-step loops.
+_TOOL_TIMEOUTS = {
+    "read_file": 30,
+    "list_directory": 30,
+    "search_files": 30,
+    "glob_files": 30,
+    "file_outline": 30,
+    "read_url": 30,         # has internal 15s timeout
+    "web_search": 30,       # has internal 15s timeout
+    "write_file": 30,
+    "edit_file": 30,
+    "run_command": None,    # uses its own COMMAND_TIMEOUT
+    "delegate": 300,        # subagents need time for multi-step work
+}
+
+# MCP tools get this timeout by default
+MCP_TOOL_TIMEOUT = 60
+
 _MODULES = [
     read_file,
     list_directory,
@@ -38,6 +61,8 @@ for _m in _MODULES:
         _entry["log"] = _m.LOG
     if getattr(_m, "NEEDS_CONFIRM", False):
         _entry["needs_confirm"] = True
+    if _name in _TOOL_TIMEOUTS:
+        _entry["timeout"] = _TOOL_TIMEOUTS[_name]
     TOOL_REGISTRY[_name] = _entry
 
 
@@ -46,6 +71,7 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
 
     Tools that need confirmation (and aren't auto-approved) run sequentially
     in the main thread.  All other tools run concurrently via a thread pool.
+    Each parallel tool has a timeout (from the registry or DEFAULT_TOOL_TIMEOUT).
 
     Args:
         tool_uses: list of tool_use dicts (each has 'id', 'name', 'input').
@@ -55,7 +81,7 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
     Returns:
         list of tool_result dicts in the same order as tool_uses.
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
     from llm_agent.display import get_display
 
@@ -85,6 +111,14 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
             "content": output,
         }
 
+    def _timeout_for(tool_name):
+        entry = registry.get(tool_name)
+        if entry:
+            t = entry.get("timeout")
+            if t is not None:
+                return t
+        return DEFAULT_TOOL_TIMEOUT
+
     # Classify each tool call
     parallel_idx = []
     sequential_idx = []
@@ -99,14 +133,26 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
 
     # Use threading only when there's actual concurrency to gain
     if len(tool_uses) > 1 and parallel_idx:
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {i: pool.submit(_run_one, tool_uses[i]) for i in parallel_idx}
-            # Run sequential tools in main thread while parallel ones execute
-            for i in sequential_idx:
-                results[i] = _run_one(tool_uses[i])
-            # Collect parallel results
-            for i, fut in futures.items():
-                results[i] = fut.result()
+        pool = ThreadPoolExecutor(max_workers=4)
+        futures = {i: pool.submit(_run_one, tool_uses[i]) for i in parallel_idx}
+        # Run sequential tools in main thread while parallel ones execute
+        for i in sequential_idx:
+            results[i] = _run_one(tool_uses[i])
+        # Collect parallel results with per-tool timeouts
+        for i, fut in futures.items():
+            timeout = _timeout_for(tool_uses[i]["name"])
+            try:
+                results[i] = fut.result(timeout=timeout)
+            except TimeoutError:
+                name = tool_uses[i]["name"]
+                display.error(f"  (tool '{name}' timed out after {timeout}s)")
+                results[i] = {
+                    "type": "tool_result",
+                    "tool_use_id": tool_uses[i]["id"],
+                    "content": f"(tool '{name}' timed out after {timeout}s)",
+                }
+        # Don't wait for timed-out threads — let them finish in the background
+        pool.shutdown(wait=False, cancel_futures=True)
     else:
         # Single tool or all sequential — no threading overhead
         for i in range(len(tool_uses)):
@@ -124,6 +170,7 @@ def register_mcp_tools(tools_and_entries):
     global _mcp_tool_names
     for schema, entry in tools_and_entries:
         name = schema["name"]
+        entry.setdefault("timeout", MCP_TOOL_TIMEOUT)
         TOOLS.append(schema)
         TOOL_REGISTRY[name] = entry
         _mcp_tool_names.append(name)
