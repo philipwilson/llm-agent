@@ -465,7 +465,7 @@ class AgentApp(App):
             f"{bold('Agent ready')} {dim(f'(model: {self._model}, {mode})')}"
         ))
         log.write(Text.from_ansi(
-            dim("Type a question, /clear, /copy, /model, /thinking, /skills, /version, or 'quit'.")
+            dim("Type a question, /clear, /copy, /mcp, /model, /thinking, /skills, /version, or 'quit'.")
         ))
 
         self._update_status_bar()
@@ -636,6 +636,10 @@ class AgentApp(App):
             self._handle_thinking_command(text)
             return
 
+        if text == "/mcp":
+            self._handle_mcp_command()
+            return
+
         if text == "/skills":
             self._handle_skills_command()
             return
@@ -754,6 +758,19 @@ class AgentApp(App):
             log.write(Text.from_ansi(dim(f"(thinking: {self._thinking_level})")))
         else:
             log.write(Text.from_ansi(dim(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)")))
+
+    def _handle_mcp_command(self):
+        log = self.query_one("#conversation", RichLog)
+        try:
+            from llm_agent.mcp_client import get_mcp_manager
+            mgr = get_mcp_manager()
+            if mgr._sessions:
+                log.write(Text.from_ansi(dim("MCP servers:")))
+                log.write(Text.from_ansi(dim(mgr.format_status())))
+            else:
+                log.write(Text.from_ansi(dim("(no MCP servers connected)")))
+        except Exception:
+            log.write(Text.from_ansi(dim("(MCP not available)")))
 
     def _handle_skills_command(self):
         from llm_agent.skills import load_all_skills, format_skill_list

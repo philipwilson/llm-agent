@@ -375,7 +375,7 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
     display = get_display()
     mode = "YOLO mode" if auto_approve else "confirm mode"
     display.info(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
-    display.status("Type a question, /clear, /model, /thinking, /skills, /version, or 'quit'.\n")
+    display.status("Type a question, /clear, /mcp, /model, /thinking, /skills, /version, or 'quit'.\n")
     skills = load_all_skills()
     conversation = []
     session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
@@ -446,6 +446,18 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
                 display.status(f"(thinking: {thinking_level})")
             else:
                 display.status(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)")
+            continue
+        if user_input.strip() == "/mcp":
+            try:
+                from llm_agent.mcp_client import get_mcp_manager
+                mgr = get_mcp_manager()
+                if mgr._sessions:
+                    display.status("MCP servers:")
+                    display.status(mgr.format_status())
+                else:
+                    display.status("(no MCP servers connected)")
+            except Exception:
+                display.status("(MCP not available)")
             continue
         if user_input.strip() == "/skills":
             skills = load_all_skills()

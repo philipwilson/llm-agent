@@ -157,6 +157,22 @@ class MCPManager:
         entry = {"handler": handler, "log": log}
         return schema, entry
 
+    def format_status(self):
+        """Return a formatted string listing connected servers and their tools."""
+        if not self._sessions:
+            return "(no MCP servers connected)"
+        lines = []
+        # Group tools by server
+        server_tools = {}
+        for tool_name, server_name in self._tool_map.items():
+            server_tools.setdefault(server_name, []).append(tool_name)
+        for name in sorted(self._sessions):
+            tools = sorted(server_tools.get(name, []))
+            lines.append(f"  {name} ({len(tools)} tools)")
+            for t in tools:
+                lines.append(f"    - {t}")
+        return "\n".join(lines)
+
     def call_tool(self, tool_name, params):
         """Call an MCP tool synchronously (blocks until result)."""
         server_name = self._tool_map.get(tool_name)
