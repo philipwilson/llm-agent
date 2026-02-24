@@ -112,6 +112,35 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
     return results
 
 
+# Track MCP tool names for cleanup
+_mcp_tool_names = []
+
+
+def register_mcp_tools(tools_and_entries):
+    """Add MCP tools to the global TOOLS list and TOOL_REGISTRY."""
+    global _mcp_tool_names
+    for schema, entry in tools_and_entries:
+        name = schema["name"]
+        TOOLS.append(schema)
+        TOOL_REGISTRY[name] = entry
+        _mcp_tool_names.append(name)
+    # Invalidate Anthropic tool cache so cache breakpoint is recalculated
+    from llm_agent.agent import invalidate_tool_cache
+    invalidate_tool_cache()
+
+
+def unregister_mcp_tools():
+    """Remove all MCP tools from global state."""
+    global _mcp_tool_names
+    names = set(_mcp_tool_names)
+    for name in _mcp_tool_names:
+        TOOL_REGISTRY.pop(name, None)
+    TOOLS[:] = [t for t in TOOLS if t["name"] not in names]
+    _mcp_tool_names = []
+    from llm_agent.agent import invalidate_tool_cache
+    invalidate_tool_cache()
+
+
 def build_tool_set(include=None, exclude=None):
     """Return (schemas_list, registry_dict) filtered to a subset of tools.
 

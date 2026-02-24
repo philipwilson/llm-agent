@@ -785,6 +785,12 @@ def run_tui(client, model, auto_approve=False, thinking_level=None):
         app.run()
     finally:
         reset_terminal_title()
+        # Shut down MCP servers before force-exit
+        try:
+            from llm_agent.mcp_client import get_mcp_manager
+            get_mcp_manager().stop()
+        except Exception:
+            pass
         # Force-exit to avoid hanging on Textual's asyncio thread cleanup.
         # Without this, _Py_Finalize waits indefinitely for Textual's
         # non-daemon event loop thread which may be stuck in a file-watching

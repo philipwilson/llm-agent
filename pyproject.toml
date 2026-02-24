@@ -14,7 +14,8 @@ vertex = ["anthropic[vertex]"]
 gemini = ["google-genai"]
 openai = ["openai"]
 tui = ["textual>=1.0"]
-all = ["anthropic[vertex]", "google-genai", "openai", "textual>=1.0"]
+mcp = ["mcp>=1.0"]
+all = ["anthropic[vertex]", "google-genai", "openai", "textual>=1.0", "mcp>=1.0"]
 
 [project.scripts]
 llm-agent = "llm_agent.cli:main"

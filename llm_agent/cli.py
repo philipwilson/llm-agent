@@ -590,35 +590,58 @@ def main():
     from llm_agent.agent import refresh_project_context
     refresh_project_context()
 
+    # Initialize MCP servers (if configured)
+    mcp_manager = None
+    try:
+        from llm_agent.mcp_client import load_mcp_config, get_mcp_manager
+        config = load_mcp_config()
+        if config:
+            mcp_manager = get_mcp_manager()
+            mcp_manager.start(config)
+    except ImportError:
+        pass  # mcp package not installed
+    except Exception as e:
+        get_display().error(f"MCP initialization failed: {e}")
+
+    def _stop_mcp():
+        if mcp_manager:
+            mcp_manager.stop()
+
     if args.c:
-        _, turn_usage = run_question(
-            client, model, [], args.c, auto_approve=args.yolo,
-            thinking_level=thinking
-        )
-        if turn_usage["input"] > 0 or turn_usage["output"] > 0:
-            cache_info = ""
-            if turn_usage["cache_read"] > 0:
-                cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
-            get_display().info_stderr(dim(
-                f"  [{format_tokens(turn_usage['input'])} in, "
-                f"{format_tokens(turn_usage['output'])} out{cache_info}]"
-            ))
+        try:
+            _, turn_usage = run_question(
+                client, model, [], args.c, auto_approve=args.yolo,
+                thinking_level=thinking
+            )
+            if turn_usage["input"] > 0 or turn_usage["output"] > 0:
+                cache_info = ""
+                if turn_usage["cache_read"] > 0:
+                    cache_info += f", {format_tokens(turn_usage['cache_read'])} cached"
+                get_display().info_stderr(dim(
+                    f"  [{format_tokens(turn_usage['input'])} in, "
+                    f"{format_tokens(turn_usage['output'])} out{cache_info}]"
+                ))
+        finally:
+            _stop_mcp()
     else:
         use_tui = not args.no_tui
-        if use_tui:
-            try:
-                from llm_agent.tui import run_tui
-                run_tui(client, model, auto_approve=args.yolo,
-                        thinking_level=thinking)
-            except ImportError:
-                # textual not installed, fall back to readline
+        try:
+            if use_tui:
+                try:
+                    from llm_agent.tui import run_tui
+                    run_tui(client, model, auto_approve=args.yolo,
+                            thinking_level=thinking)
+                except ImportError:
+                    # textual not installed, fall back to readline
+                    setup_readline()
+                    agent_loop(client, model, auto_approve=args.yolo,
+                               thinking_level=thinking)
+            else:
                 setup_readline()
                 agent_loop(client, model, auto_approve=args.yolo,
                            thinking_level=thinking)
-        else:
-            setup_readline()
-            agent_loop(client, model, auto_approve=args.yolo,
-                       thinking_level=thinking)
+        finally:
+            _stop_mcp()
 
 
 if __name__ == "__main__":
