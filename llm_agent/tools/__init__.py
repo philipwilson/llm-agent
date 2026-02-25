@@ -12,6 +12,7 @@ from llm_agent.tools import (
     run_command,
     web_search,
     delegate,
+    ask_user,
 )
 
 # Default timeout (seconds) for tools that don't specify one.
@@ -32,6 +33,7 @@ _TOOL_TIMEOUTS = {
     "edit_file": 30,
     "run_command": None,    # uses its own COMMAND_TIMEOUT
     "delegate": 300,        # subagents need time for multi-step work
+    "ask_user": None,       # blocks on user input, no timeout
 }
 
 # MCP tools get this timeout by default
@@ -49,6 +51,7 @@ _MODULES = [
     run_command,
     web_search,
     delegate,
+    ask_user,
 ]
 
 TOOLS = [m.SCHEMA for m in _MODULES]
@@ -61,6 +64,8 @@ for _m in _MODULES:
         _entry["log"] = _m.LOG
     if getattr(_m, "NEEDS_CONFIRM", False):
         _entry["needs_confirm"] = True
+    if getattr(_m, "NEEDS_SEQUENTIAL", False):
+        _entry["needs_sequential"] = True
     if _name in _TOOL_TIMEOUTS:
         _entry["timeout"] = _TOOL_TIMEOUTS[_name]
     TOOL_REGISTRY[_name] = _entry
@@ -126,7 +131,9 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
     sequential_idx = []
     for i, tu in enumerate(tool_uses):
         entry = registry.get(tu["name"])
-        if entry and entry.get("needs_confirm") and not auto_approve:
+        if entry and entry.get("needs_sequential"):
+            sequential_idx.append(i)
+        elif entry and entry.get("needs_confirm") and not auto_approve:
             sequential_idx.append(i)
         else:
             parallel_idx.append(i)

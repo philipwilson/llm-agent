@@ -214,6 +214,8 @@ class TUIDisplay(Display):
         self._app = app
         self._confirm_event = threading.Event()
         self._confirm_result = False
+        self._ask_event = threading.Event()
+        self._ask_result = ""
         # Accumulate the full streamed response, write once at stream_end.
         # Each RichLog.write() creates an independent block that wraps at
         # its own width, so writing per-batch produces narrow paragraphs.
@@ -293,6 +295,35 @@ class TUIDisplay(Display):
         inp.value = ""
         app.query_one("#status-tokens", Static).update(
             Text.from_ansi(dim("awaiting confirmation..."))
+        )
+
+    def ask_user(self, question, choices=None):
+        """Show question, switch input to ask mode, block until answered."""
+        from llm_agent.formatting import bold as _bold
+        text = f"\n  {_bold(question)}"
+        if choices:
+            for i, choice in enumerate(choices, 1):
+                label = choice.get("label", "")
+                desc = choice.get("description", "")
+                if desc:
+                    text += f"\n    {dim(str(i)+'.')} {label} — {dim(desc)}"
+                else:
+                    text += f"\n    {dim(str(i)+'.')} {label}"
+        self._write(text)
+        self._ask_event.clear()
+        self._app.call_from_thread(self._app_enter_ask_mode)
+        self._ask_event.wait()
+        return self._ask_result
+
+    def _app_enter_ask_mode(self):
+        """Switch the input widget to ask mode."""
+        app = self._app
+        app._ask_mode = True
+        inp = app.query_one("#prompt", PromptInput)
+        inp.placeholder = "Type your answer..."
+        inp.value = ""
+        app.query_one("#status-tokens", Static).update(
+            Text.from_ansi(dim("awaiting answer..."))
         )
 
     def auto_approved(self, preview_lines):
@@ -418,6 +449,7 @@ class AgentApp(App):
         super().__init__()
         self._session = session
         self._confirm_mode = False
+        self._ask_mode = False
         self._busy = False
         self._streaming = False
         self._tui_display = None
@@ -560,7 +592,7 @@ class AgentApp(App):
         inp = self.query_one("#prompt", PromptInput)
         if not inp.has_focus:
             return
-        if self._confirm_mode:
+        if self._confirm_mode or self._ask_mode:
             return
         if event.key == "ctrl+d":
             if inp.value == "":
@@ -591,6 +623,17 @@ class AgentApp(App):
     def on_prompt_input_submitted(self, event: PromptInput.Submitted):
         self._ctrl_d_pending = False
         text = event.value.strip()
+
+        # Handle ask mode
+        if self._ask_mode:
+            self._ask_mode = False
+            inp = self.query_one("#prompt", PromptInput)
+            inp.placeholder = "Type a question..."
+            log = self.query_one("#conversation", RichLog)
+            log.write(Text.from_ansi(dim(f"  → {text}" if text else "  → (no answer provided)")))
+            self._tui_display._ask_result = text or "(no answer provided)"
+            self._tui_display._ask_event.set()
+            return
 
         # Handle confirmation mode
         if self._confirm_mode:

@@ -73,11 +73,13 @@ def _load_custom_agents():
                 with open(path) as f:
                     defn = json.load(f)
                 name = defn.get("name", fname[:-5])
-                # Never allow delegate in subagent tools
+                # Never allow delegate or ask_user in subagent tools
                 tools = defn.get("tools")
-                if tools and "delegate" in tools:
-                    tools = [t for t in tools if t != "delegate"]
-                    defn["tools"] = tools
+                if tools:
+                    excluded = {"delegate", "ask_user"}
+                    filtered = [t for t in tools if t not in excluded]
+                    if len(filtered) != len(tools):
+                        defn["tools"] = filtered
                 agents[name] = defn
             except (json.JSONDecodeError, OSError) as e:
                 get_display().error(f"{yellow(f'Warning: skipping {path}: {e}')}")
@@ -109,12 +111,13 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     # Resolve tools
     tool_names = defn.get("tools")
     if tool_names:
-        # Always exclude delegate from subagents
-        tool_names = [t for t in tool_names if t != "delegate"]
+        # Always exclude delegate and ask_user from subagents
+        excluded = {"delegate", "ask_user"}
+        tool_names = [t for t in tool_names if t not in excluded]
         tools, tool_registry = build_tool_set(tool_names)
     else:
-        # Default: all tools except delegate
-        tools, tool_registry = build_tool_set(exclude=["delegate"])
+        # Default: all tools except delegate and ask_user
+        tools, tool_registry = build_tool_set(exclude=["delegate", "ask_user"])
 
     # Resolve system prompt
     system_prompt = defn.get("system_prompt")  # None means inherit parent default

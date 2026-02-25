@@ -102,6 +102,32 @@ class Display:
             answer = input(f"  {dim(prompt_text)} ").strip().lower()
         return answer in ("", "y", "yes")
 
+    def ask_user(self, question, choices=None):
+        """Ask the user a clarifying question.
+
+        Args:
+            question: the question to display.
+            choices: optional list of dicts with 'label' and optional 'description'.
+
+        Returns:
+            The user's answer as a string.
+        """
+        with self._lock:
+            print(f"\n  {bold(question)}")
+            if choices:
+                for i, choice in enumerate(choices, 1):
+                    label = choice.get("label", "")
+                    desc = choice.get("description", "")
+                    if desc:
+                        print(f"    {dim(str(i)+'.')} {label} — {dim(desc)}")
+                    else:
+                        print(f"    {dim(str(i)+'.')} {label}")
+            try:
+                answer = input(f"  {dim('>')} ").strip()
+            except EOFError:
+                answer = ""
+        return answer or "(no answer provided)"
+
     def auto_approved(self, preview_lines):
         """Show a preview that was auto-approved (no confirmation needed)."""
         with self._lock:
