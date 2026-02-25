@@ -52,4 +52,10 @@ def handle(params):
     choices = params.get("choices")
     if not question:
         return "(error: 'question' is required)"
-    return get_display().ask_user(question, choices)
+    answer = get_display().ask_user(question, choices)
+    # Resolve numeric answers to the choice label
+    if choices and answer.isdigit():
+        idx = int(answer) - 1
+        if 0 <= idx < len(choices):
+            answer = choices[idx].get("label", answer)
+    return answer

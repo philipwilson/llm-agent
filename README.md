@@ -83,7 +83,7 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has ten tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has twelve tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
 
 **Read-only:**
 - **read_file** -- read file contents with line numbers, optional offset/limit
@@ -97,6 +97,9 @@ The agent has ten tools it can use autonomously. Read-only tools run without con
 - **write_file** -- create or overwrite a file
 - **edit_file** -- targeted find-and-replace in an existing file
 - **run_command** -- run an arbitrary shell command
+
+**Interactive (always prompts):**
+- **ask_user** -- ask the user a clarifying question (free-text or multiple-choice); always prompts, even in yolo mode
 
 **Delegation (no confirmation):**
 - **delegate** -- spawn a subagent with its own conversation and filtered tool set (built-in: `explore` for read-only research, `code` for full access)

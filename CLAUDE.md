@@ -104,6 +104,7 @@ llm_agent/
         edit_file.py    — SCHEMA + handle
         run_command.py  — SCHEMA + handle + NEEDS_CONFIRM
         delegate.py     — SCHEMA + handle (subagent delegation)
+        ask_user.py     — SCHEMA + handle + NEEDS_SEQUENTIAL (user questions)
 ```
 
 - Package name: `llm-agent` (import name: `llm_agent`)
@@ -122,7 +123,7 @@ The agent is split across several modules:
 - **`display.py`** — Display protocol abstracting all user-facing output (print/input)
 - **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
 - **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
-- **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`. `dispatch_tool_calls()` handles parallel execution of safe tools via `ThreadPoolExecutor`
+- **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`/`NEEDS_SEQUENTIAL`. `dispatch_tool_calls()` handles parallel execution of safe tools via `ThreadPoolExecutor`
 
 The key flow:
 
@@ -135,7 +136,7 @@ The key flow:
 
 ## Tools
 
-The model has eleven tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has twelve tools. Read-only tools run without confirmation; mutating tools always require it.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
@@ -150,6 +151,9 @@ The model has eleven tools. Read-only tools run without confirmation; mutating t
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
 - **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview.
 - **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches `DANGEROUS_PATTERNS`.
+
+**Interactive (always sequential):**
+- **`ask_user`** — asks the user a clarifying question. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
 
 **Delegation (no confirmation):**
 - **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
@@ -201,13 +205,13 @@ The `delegate` tool lets the model spawn child agents for subtasks. Each subagen
 - A **filtered tool set** (e.g. read-only for `explore`)
 - An optional **model override** (e.g. haiku for speed)
 - An optional **custom system prompt**
-- **No access to `delegate`** itself (no nesting)
+- **No access to `delegate`** itself (no nesting) or **`ask_user`** (cannot prompt the user)
 
 **Built-in agents:**
 - `explore` — read-only tools, uses haiku, research-focused system prompt
-- `code` — all tools except delegate, inherits parent model and system prompt
+- `code` — all tools except delegate and ask_user, inherits parent model and system prompt
 
-**Custom agents:** Place `.json` files in `~/.agents/` (user-level) or `.agents/` (project-level, higher priority). Each defines `name`, `description`, optional `model`, optional `tools` list, optional `system_prompt`. The `delegate` tool is always excluded from subagent tool lists.
+**Custom agents:** Place `.json` files in `~/.agents/` (user-level) or `.agents/` (project-level, higher priority). Each defines `name`, `description`, optional `model`, optional `tools` list, optional `system_prompt`. The `delegate` and `ask_user` tools are always excluded from subagent tool lists.
 
 **Key files:**
 - `agents.py` — `BUILTIN_AGENTS`, `load_all_agents()`, `run_subagent()`
@@ -289,6 +293,7 @@ All user-facing output goes through a `Display` protocol (`display.py`), accesse
 - `tool_log(message)` — tool invocation logging (already ANSI-formatted)
 - `tool_result(line_count)` — tool output summary
 - `confirm(preview_lines, prompt_text) -> bool` — show preview, ask Y/n
+- `ask_user(question, choices=None) -> str` — ask a clarifying question (free-text or multiple-choice)
 - `auto_approved(preview_lines)` — show preview for auto-approved actions
 - `status(message)` / `error(message)` / `info(message)` — output categories
 
@@ -326,6 +331,8 @@ Interactive mode uses a Textual-based TUI by default (falls back to readline if 
 3. User presses y/n/Enter → app signals the event
 4. Worker resumes with the result
 
+**Ask flow (TUI):** Same threading pattern as confirmation — `TUIDisplay.ask_user()` writes the question to RichLog, switches input to ask mode (free-text placeholder), blocks on a separate `threading.Event`, and returns the user's answer.
+
 **Streaming:** Tokens are accumulated in a buffer during streaming. The full response is written to `RichLog` as a single `write()` call on `stream_end()` (each `write()` creates an independent wrapping block, so per-batch writes would cause narrow paragraphs). A `~` indicator replaces the `>` prompt marker during streaming.
 
 **Status bar:** Three `Static` widgets in a `Horizontal` container:
@@ -360,7 +367,7 @@ Updated after each agent turn via `_update_status_bar()`.
 - **Project context auto-detection** — at startup, the system prompt is augmented with project context detected from the working directory: project type (from `pyproject.toml`, `package.json`, `Cargo.toml`, etc.), git branch/status/recent commits, and `AGENTS.md` convention file if present. This is handled by `context.py` → `agent.py:refresh_project_context()`.
 - **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines
-- **Parallel tool execution** — when the model emits multiple tool calls in one response, `dispatch_tool_calls()` runs read-only and auto-approved tools concurrently via `ThreadPoolExecutor(max_workers=4)`. Tools requiring confirmation run sequentially in the main thread. All three provider modules share this dispatch function.
+- **Parallel tool execution** — when the model emits multiple tool calls in one response, `dispatch_tool_calls()` runs read-only and auto-approved tools concurrently via `ThreadPoolExecutor(max_workers=4)`. Tools requiring confirmation run sequentially in the main thread. Tools marked `NEEDS_SEQUENTIAL` (e.g. `ask_user`) always run sequentially regardless of auto-approve mode. All three provider modules share this dispatch function.
 - **MCP tool servers** — external tools from MCP servers (configured via `.mcp.json`) are registered in the global tool registry at startup and available to the model alongside built-in tools. The `mcp` package is optional; without it, MCP features are silently skipped.
 
 ## Model Names

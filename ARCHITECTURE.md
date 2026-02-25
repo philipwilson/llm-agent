@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.15.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.16.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -43,7 +43,7 @@ A terminal-based AI agent that answers questions by exploring your filesystem, r
 | **Multi-provider** | Anthropic Claude (direct + Vertex AI), Google Gemini, OpenAI — switch mid-session with `/model` |
 | **Streaming** | Responses stream to the terminal as they're generated |
 | **Interactive TUI** | Textual-based terminal UI (light theme) with readline fallback |
-| **11+ tools** | Read files, search code, browse the web, edit files, run commands, delegate to subagents, plus external MCP tools |
+| **12+ tools** | Read files, search code, browse the web, edit files, run commands, ask clarifying questions, delegate to subagents, plus external MCP tools |
 | **Working directory tracking** | `cd` in one command persists to the next |
 | **Prompt caching** | System prompt and conversation prefix cached across Anthropic API calls |
 | **Token tracking** | Per-turn and session totals after each answer, cache hit stats |
@@ -137,7 +137,7 @@ llm-agent -t 60                              # 60-second command timeout
 
 ## Tools
 
-The agent has **11 tools** it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has **12 tools** it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
 
 ### Read-Only (no confirmation)
 
@@ -159,6 +159,12 @@ The agent has **11 tools** it can use autonomously. Read-only tools run without 
 | `edit_file` | Targeted edit in an existing file. Three modes: **(1)** string match — `old_string` + `new_string` (must match uniquely, whitespace-normalised fuzzy fallback), **(2)** line range — `start_line` + `end_line` + `new_string`, **(3)** batch — `edits` array of multiple operations applied atomically. Shows diff preview. |
 | `run_command` | Execute a shell command. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. |
 
+### Interactive (no confirmation, always sequential)
+
+| Tool | Description |
+|------|-------------|
+| `ask_user` | Ask the user a clarifying question when the request is ambiguous. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. |
+
 ### Delegation (no confirmation)
 
 | Tool | Description |
@@ -172,7 +178,7 @@ The agent has **11 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.15.0"
+    __init__.py                # VERSION = "0.16.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
@@ -200,6 +206,7 @@ llm_agent/
         edit_file.py           # SCHEMA + handle
         run_command.py         # SCHEMA + handle + NEEDS_CONFIRM + DANGEROUS_PATTERNS
         delegate.py            # SCHEMA + handle (subagent delegation)
+        ask_user.py            # SCHEMA + handle + NEEDS_SEQUENTIAL (user questions)
 .skills/                       # 10 bundled skills (see Skill System section)
 ```
 
@@ -295,6 +302,7 @@ class Display:
     def tool_log(message)                                          # tool invocation log
     def tool_result(line_count)                                    # tool output summary
     def confirm(preview_lines, prompt_text) -> bool                # Y/n confirmation
+    def ask_user(question, choices=None) -> str                    # clarifying question
     def auto_approved(preview_lines)                               # auto-approved preview
     def status(message) / error(message) / info(message)           # output categories
 ```
@@ -325,7 +333,7 @@ Interactive mode uses a Textual-based TUI by default (falls back to readline if 
 | `PromptInput(TextArea)` | Multi-line input with Emacs keybindings (Ctrl+A/E/F/B/D/K/U/W/H). Enter submits, Shift+Enter for newline. Auto-grows up to 8 lines. |
 | Status bar | Three `Static` widgets: model+mode, turn/session token counts, context remaining % |
 
-**Confirmation flow:** Worker thread posts preview to RichLog → switches input to Y/n mode → blocks on `threading.Event.wait()` → user responds → main thread signals event → worker resumes.
+**Confirmation flow:** Worker thread posts preview to RichLog → switches input to Y/n mode → blocks on `threading.Event.wait()` → user responds → main thread signals event → worker resumes. The `ask_user` tool uses the same pattern with a separate ask mode and event.
 
 **Theme:** Light theme (`agent-light`) — white background, sea-green accents, light gray status bar.
 
@@ -376,7 +384,8 @@ Gemini and OpenAI do not currently use prompt caching.
 When the model emits multiple tool calls in a single response, `dispatch_tool_calls()` classifies them:
 
 - **Safe tools** (read-only, or auto-approved in yolo mode): run concurrently via `ThreadPoolExecutor(max_workers=4)`
-- **Confirmation-required tools**: run sequentially in the main thread
+- **Always-sequential tools** (e.g. `ask_user`): run sequentially regardless of auto-approve mode, since they require user input
+- **Confirmation-required tools**: run sequentially in the main thread (parallel in yolo mode)
 
 Results are returned in the same order as the input tool calls. All three provider modules share this dispatch function.
 
@@ -465,7 +474,7 @@ The `delegate` tool spawns child agents with isolated conversations and filtered
 | `explore` | haiku | read-only (read_file, list_directory, search_files, glob_files, read_url, web_search) | Fast, cheap research and fact-finding |
 | `code` | (inherits parent) | all except delegate and file_outline | Full coding tasks needing file writes or commands |
 
-Subagents **never** have access to `delegate` (no nesting). Each runs in its own conversation up to 20 steps, and returns a final text answer to the parent.
+Subagents **never** have access to `delegate` (no nesting) or `ask_user` (cannot prompt the user). Each runs in its own conversation up to 20 steps, and returns a final text answer to the parent.
 
 ### Custom Agents
 
@@ -618,7 +627,8 @@ SCHEMA = {
     },
 }
 
-NEEDS_CONFIRM = False  # True for mutating tools
+NEEDS_CONFIRM = False   # True for mutating tools
+NEEDS_SEQUENTIAL = False  # True for tools that always need main thread (e.g. user input)
 
 def log(params):
     from llm_agent.display import get_display
