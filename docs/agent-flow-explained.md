@@ -4,18 +4,14 @@
 
 There are two entry points:
 
-- **Interactive mode** (`agent_loop`, line 712): The user types at a `>` prompt in a REPL. The input is read via `input()` (line 721) and passed to `run_question()`.
-- **One-shot mode** (`-c` flag, line 798): A single question is passed as a CLI argument directly to `run_question()`.
+- **Interactive mode** (`agent_loop`, in `cli.py`): The user types at a `>` prompt in a REPL. The input is read via `input()` and passed to `Session.run_question()` (in `session.py`).
+- **One-shot mode** (`-c` flag, in `cli.py`): A single question is passed as a CLI argument directly to `Session.run_question()`.
 
-Either way, the raw user string arrives at `run_question()` (line 684).
-
----
+Either way, the raw user string arrives at `Session.run_question()`.---
 
 ## 2. Building the LLM Prompt (`run_question`)
 
-`run_question` (line 684) does the following:
-
-1. **Appends the user text** to the `conversation` list as a simple message:
+`Session.run_question()` does the following:1. **Appends the user text** to the `conversation` list as a simple message:
    ```python
    conversation.append({"role": "user", "content": user_input})
    ```
@@ -117,12 +113,11 @@ So a single user question can trigger many LLM calls, each one seeing the growin
 
 ## 6. Conversation Continuity
 
-After `run_question` returns, the updated `messages` list is saved back into the `conversation` variable in `agent_loop` (line 758). This means the **next** user question will include all prior context.
+After `Session.run_question()` completes its loop, the updated message list is assigned back to `self.conversation` inside the `Session` instance. This means the **next** user question will include all prior context.
 
 To prevent unbounded growth, the conversation is trimmed based on actual token usage. After each question, `trim_conversation()` checks whether the last API call's input token count exceeded 80% of the model's context window. If so, it removes the oldest complete message rounds (user + assistant/tool messages) until the estimated token savings cover the excess.
 
 The user can also type `/clear` to reset the conversation to empty.
-
 ---
 
 ## Summary: The Complete Lifecycle

@@ -11,10 +11,9 @@ User Question
      │
      ▼
 ┌──────────────┐
-│  Agent Loop   │◄──── conversation history
-│  (agent_loop) │
-└──────┬───────┘
-       │
+│  Session      │◄──── conversation history
+│  (session.py) │
+└──────┬───────┘       │
        ▼
 ┌──────────────────┐     ┌──────────────┐
 │  API Call         │────►│ Tool Use?    │
@@ -85,14 +84,15 @@ This is the top-level module. It handles:
   - `ANTHROPIC_VERTEX_PROJECT_ID` set → Anthropic via Google Vertex AI
   - Otherwise exits with an error
 
-- **`run_question(client, model, conversation, user_input, ...)`**: Runs a single user question to completion. Parses attachments, selects the right turn function (`agent_turn` or `gemini_agent_turn`), and calls it in a loop until the model produces a final answer or `MAX_STEPS` is reached. Handles Ctrl+C by discarding the partial turn cleanly.
+- **`Session.run_question(user_input)`** (in `session.py`): Runs a single user question to completion. Parses attachments, selects the right turn function (`agent_turn` or `gemini_agent_turn`), and calls it in a loop until the model produces a final answer or `MAX_STEPS` is reached. Handles Ctrl+C by discarding the partial turn cleanly.
 
 - **`estimate_tokens(messages)`**: Estimates the token count of a list of messages using a chars/4 heuristic. Used by `trim_conversation()` to gauge how many tokens removing a round of messages would reclaim.
 
 - **`trim_conversation(conversation, last_input_tokens, model)`**: Removes oldest complete message rounds (a user message plus all following assistant/tool messages) until the estimated token removal covers the excess above the context budget. Only trims when `last_input_tokens` exceeds 80% of the model's context window.
 
-- **`agent_loop(client, model, ...)`**: The interactive REPL. Prints a welcome banner, then repeatedly prompts for input. Handles slash commands (`/clear`, `/model`, `/thinking`, `/version`) and `quit`/`exit`. After each answer, displays per-turn and session-level token usage. Trims conversation history based on actual token usage relative to the model's context window (via `trim_conversation`).
+- **`Session` class** (in `session.py`): Owns the state (conversation history, token stats, loaded skills). Exposes `handle_command()` for routing slash commands and `run_question()` for executing tasks. Automatically manages token-budget trimming.
 
+- **`agent_loop()`** (in `cli.py`): The interactive REPL. Prints a welcome banner, then repeatedly prompts for input. It delegates slash commands and questions to the `Session` object. After each answer, it queries the `Session` to display per-turn and session-level token usage.
 - **`main()`**: Parses CLI arguments:
   - `-m` / `--model`: Choose model (default: `sonnet`)
   - `-y` / `--yolo`: Auto-approve safe commands

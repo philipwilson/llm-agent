@@ -89,8 +89,8 @@ llm_agent/
     formatting.py       — colour helpers, output truncation, token formatting
     display.py          — Display protocol, get_display/set_display singleton
     tui.py              — Textual TUI app, TUIDisplay, PromptInput, light theme
-    system_prompt.txt   — system prompt (edit without touching Python)
-    tools/
+    session.py          — Session class (conversation state, token tracking, command routing)
+    system_prompt.txt   — system prompt (edit without touching Python)    tools/
         __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls(), register/unregister_mcp_tools()
         base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
@@ -122,16 +122,15 @@ The agent is split across several modules:
 - **`mcp_client.py`** — MCP client manager: server lifecycle, tool discovery, async-to-sync bridge
 - **`display.py`** — Display protocol abstracting all user-facing output (print/input)
 - **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
-- **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
+- **`session.py`** — `Session` class managing conversation history, token usage, and `/slash` commands- **`formatting.py`** — ANSI colour helpers, output truncation, token formatting
 - **`tools/`** — one file per tool, each exporting `SCHEMA`, `handle()`, and optional `LOG`/`NEEDS_CONFIRM`/`NEEDS_SEQUENTIAL`. `dispatch_tool_calls()` handles parallel execution of safe tools via `ThreadPoolExecutor`
 
 The key flow:
 
-1. **`main()`** (`cli.py`) — parses args (`-m`, `-y`, `-c`, `--thinking`, `--no-tui`), creates API client, initializes MCP servers (if configured), dispatches to single-shot, TUI, or readline REPL mode
-2. **`run_question()`** (`cli.py`) — runs a single user question to completion: calls `agent_turn`, `gemini_agent_turn`, or `openai_agent_turn` in a loop until the model produces a final answer, with `MAX_STEPS` guard and Ctrl+C handling
-3. **`agent_loop()`** (`cli.py`) — readline REPL that calls `run_question` repeatedly, maintains conversation history, session-level token stats, and skill routing
-4. **`AgentApp`** (`tui.py`) — Textual TUI alternative to `agent_loop()`. Runs `run_question()` in a worker thread, routes output via `TUIDisplay`
-5. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
+1. **`main()`** (`cli.py`) — parses args, creates API client and `Session`, initializes MCP servers, dispatches to single-shot, TUI, or readline REPL mode
+2. **`Session.run_question()`** (`session.py`) — runs a single user question to completion: calls `agent_turn`, `gemini_agent_turn`, or `openai_agent_turn` in a loop until the model produces a final answer, tracks token usage, and trims the conversation if needed.
+3. **`agent_loop()`** (`cli.py`) — readline REPL that delegates to `Session.handle_command()` and `Session.run_question()` repeatedly
+4. **`AgentApp`** (`tui.py`) — Textual TUI alternative to `agent_loop()`. Runs `Session.run_question()` in a worker thread, routes output via `TUIDisplay`5. **`agent_turn()`** (`agent.py`) — streams a single model API call, dispatches tool use via `TOOL_REGISTRY`, returns when the model produces a final text answer or requests tool results
 6. **`TOOL_REGISTRY`** (`tools/__init__.py`) — auto-collected from tool modules; adding a new tool requires creating a tool file and adding one import line
 
 ## Tools
