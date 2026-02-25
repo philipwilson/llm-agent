@@ -423,6 +423,7 @@ class AgentApp(App):
         self._tui_display = None
         self._history = []
         self._history_index = -1
+        self._ctrl_d_pending = False
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -563,8 +564,14 @@ class AgentApp(App):
             return
         if event.key == "ctrl+d":
             if inp.value == "":
-                self.exit()
+                if self._ctrl_d_pending:
+                    self.exit()
+                else:
+                    self._ctrl_d_pending = True
+                    log = self.query_one("#conversation", RichLog)
+                    log.write(Text("Press Ctrl-D again to exit."))
             else:
+                self._ctrl_d_pending = False
                 inp.action_delete_right()
             event.prevent_default()
         elif event.key in ("up", "ctrl+p"):
@@ -582,6 +589,7 @@ class AgentApp(App):
                 event.prevent_default()
 
     def on_prompt_input_submitted(self, event: PromptInput.Submitted):
+        self._ctrl_d_pending = False
         text = event.value.strip()
 
         # Handle confirmation mode

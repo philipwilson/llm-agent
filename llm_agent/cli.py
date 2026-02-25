@@ -349,13 +349,19 @@ def agent_loop(session):
     display.status("Type a question, /clear, /mcp, /model, /thinking, /skills, /version, or 'quit'.\n")
     update_terminal_title()
 
+    ctrl_d_pending = False
     while True:
         try:
             user_input = input("\001\033[1m\002>\001\033[0m\002 ").strip()
         except (EOFError, KeyboardInterrupt):
-            display.info("\nBye.")
-            break
+            if ctrl_d_pending:
+                display.info("\nBye.")
+                break
+            ctrl_d_pending = True
+            display.status("\nPress Ctrl-D again to exit.")
+            continue
 
+        ctrl_d_pending = False
         if not user_input:
             continue
         if user_input.lower() in ("quit", "exit"):

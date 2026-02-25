@@ -131,7 +131,7 @@ llm-agent -t 60                              # 60-second command timeout
 | `/copy` | Copy last assistant response to clipboard (TUI only) |
 | `/version` | Show version and current model |
 | `Ctrl+C` | Cancel current response |
-| `Ctrl+D` | Exit (or delete char under cursor if input is non-empty) |
+| `Ctrl+D` | Press twice on empty input to exit (or delete char under cursor if input is non-empty) |
 
 ---
 
