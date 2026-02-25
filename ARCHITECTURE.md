@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.14.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.15.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -172,8 +172,9 @@ The agent has **11 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.14.0"
-    cli.py                     # main(), arg parsing, REPL, run_question()
+    __init__.py                # VERSION = "0.15.0"
+    cli.py                     # main(), arg parsing, REPL, agent_loop()
+    session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
     gemini_agent.py            # gemini_agent_turn() — Gemini streaming + format conversion
     openai_agent.py            # openai_agent_turn() — OpenAI streaming + format conversion
@@ -212,30 +213,27 @@ llm_agent/
 main() — cli.py
 ├── parse args (-m, -y, -c, --thinking, --no-tui, -t)
 ├── make_client(model) → Anthropic / Gemini / OpenAI client
-├── setup_delegate() → wire subagent callback
+├── Session(client, model, ...) → create session (wires subagent callback, loads skills)
 ├── refresh_project_context() → detect project type, git, AGENTS.md
 ├── load_mcp_config() → connect to MCP servers, register tools
 └── dispatch to:
-    ├── single-shot: run_question() then exit
-    ├── readline REPL: agent_loop() → run_question() in a loop
-    └── Textual TUI: run_tui() → AgentApp → run_question() in worker thread
+    ├── single-shot: session.run_question() then exit
+    ├── readline REPL: agent_loop(session) → session.run_question() in a loop
+    └── Textual TUI: run_tui() → AgentApp → session.run_question() in worker thread
 
-run_question(client, model, conversation, user_input, ...)
+Session.run_question(user_input) — session.py
 ├── parse_attachments() → extract @filepath as base64 content blocks
 ├── append user message to conversation
-└── loop (up to MAX_STEPS=20):
+└── loop (up to MAX_STEPS=20, or 50 for Gemini):
     ├── call agent_turn() / gemini_agent_turn() / openai_agent_turn()
-    ├── if model returned final text (no tool calls): break
-    ├── dispatch_tool_calls() → execute tools, collect results
-    └── append tool results, continue
-
-agent_turn(client, model, messages, ...) — one API call
-├── stream response via provider SDK
-├── accumulate content blocks (text + tool_use)
-├── if tool_use blocks present:
-│   ├── dispatch_tool_calls() → parallel safe / sequential confirm
-│   └── append tool results to messages
-└── return (messages, done=True if final answer, False if tools need results)
+    │   ├── stream response via provider SDK
+    │   ├── accumulate content blocks (text + tool_use)
+    │   ├── if tool_use blocks present:
+    │   │   ├── dispatch_tool_calls() → parallel safe / sequential confirm
+    │   │   └── append tool results to messages
+    │   └── return (messages, done=True if final answer, False if tools pending)
+    ├── if done: break
+    └── continue loop
 ```
 
 ### Key Functions
@@ -243,8 +241,10 @@ agent_turn(client, model, messages, ...) — one API call
 | Function | Module | Purpose |
 |----------|--------|---------|
 | `main()` | cli.py | Entry point — arg parsing, client creation, mode dispatch |
-| `run_question()` | cli.py | Run one user question to completion (agent turn loop with MAX_STEPS=20 guard) |
-| `agent_loop()` | cli.py | Readline REPL — loads skills, routes commands, calls run_question() |
+| `Session` | session.py | Agent session state, command routing, and question execution |
+| `Session.run_question()` | session.py | Run one user question to completion (agent turn loop with MAX_STEPS guard) |
+| `Session.handle_command()` | session.py | Route interactive commands (`/clear`, `/model`, `/thinking`, `/mcp`, `/skills`, skills) |
+| `agent_loop()` | cli.py | Readline REPL — calls session.handle_command() and session.run_question() |
 | `agent_turn()` | agent.py | Single Anthropic API call — stream, dispatch tools, return |
 | `gemini_agent_turn()` | gemini_agent.py | Single Gemini API call with format conversion |
 | `openai_agent_turn()` | openai_agent.py | Single OpenAI API call with format conversion |
@@ -462,8 +462,8 @@ The `delegate` tool spawns child agents with isolated conversations and filtered
 
 | Agent | Model | Tools | Use Case |
 |-------|-------|-------|----------|
-| `explore` | haiku | read-only (read_file, list_directory, search_files, glob_files, file_outline, read_url, web_search) | Fast, cheap research and fact-finding |
-| `code` | (inherits parent) | all except delegate | Full coding tasks needing file writes or commands |
+| `explore` | haiku | read-only (read_file, list_directory, search_files, glob_files, read_url, web_search) | Fast, cheap research and fact-finding |
+| `code` | (inherits parent) | all except delegate and file_outline | Full coding tasks needing file writes or commands |
 
 Subagents **never** have access to `delegate` (no nesting). Each runs in its own conversation up to 20 steps, and returns a final text answer to the parent.
 
@@ -561,9 +561,9 @@ All three providers implement retry with exponential backoff (**3 retries**, del
 |----------|---------------|
 | Anthropic | `RateLimitError`, `InternalServerError`, `APIConnectionError` |
 | Gemini | `ResourceExhausted`, `InternalServerError`, `ServiceUnavailable`, `TooManyRequests` |
-| OpenAI | Rate limits and server errors (via SDK + manual retry) |
+| OpenAI | `RateLimitError`, `InternalServerError`, `APIConnectionError`, `APITimeoutError` |
 
-The agent loop itself has a `MAX_STEPS=20` guard to prevent runaway tool-use loops. Ctrl+C cancels the current response and returns to the prompt.
+The agent loop has a `MAX_STEPS=20` guard to prevent runaway tool-use loops (50 for Gemini models, which tend to make single tool calls per turn). Ctrl+C cancels the current response and returns to the prompt.
 
 ---
 
