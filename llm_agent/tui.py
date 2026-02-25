@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.theme import Theme
-from textual.widgets import RichLog, Rule, Static, TextArea
+from textual.widgets import OptionList, RichLog, Rule, Static, TextArea
 from rich.text import Text
 
 from llm_agent.display import Display, set_display
@@ -184,6 +184,23 @@ class PromptInput(TextArea):
 
 
 # ---------------------------------------------------------------------------
+# ChoiceList — OptionList subclass with Escape-to-cancel
+# ---------------------------------------------------------------------------
+
+class ChoiceList(OptionList):
+    """Arrow-key selection widget for ask_user choices. Escape cancels."""
+
+    class Cancelled(Message):
+        pass
+
+    def _on_key(self, event):
+        if event.key == "escape":
+            self.post_message(self.Cancelled())
+            event.prevent_default()
+            event.stop()
+
+
+# ---------------------------------------------------------------------------
 # Light theme inspired by Claude Code
 # ---------------------------------------------------------------------------
 
@@ -216,6 +233,8 @@ class TUIDisplay(Display):
         self._confirm_result = False
         self._ask_event = threading.Event()
         self._ask_result = ""
+        self._selection_event = threading.Event()
+        self._selection_result = ""
         # Accumulate the full streamed response, write once at stream_end.
         # Each RichLog.write() creates an independent block that wraps at
         # its own width, so writing per-batch produces narrow paragraphs.
@@ -287,18 +306,22 @@ class TUIDisplay(Display):
         return self._confirm_result
 
     def _app_enter_confirm(self, prompt_text):
-        """Switch the input widget to confirmation mode."""
+        """Hide PromptInput, mount a Yes/No ChoiceList for confirmation."""
         app = self._app
         app._confirm_mode = True
         inp = app.query_one("#prompt", PromptInput)
-        inp.placeholder = prompt_text
-        inp.value = ""
+        inp.display = False
+
+        choice_list = ChoiceList("Yes", "No", id="choice-list")
+        container = app.query_one("#input-row", Horizontal)
+        container.mount(choice_list)
+        choice_list.focus()
         app.query_one("#status-tokens", Static).update(
-            Text.from_ansi(dim("awaiting confirmation..."))
+            Text.from_ansi(dim("Enter to approve, ↓ N for reject"))
         )
 
     def ask_user(self, question, choices=None):
-        """Show question, switch input to ask mode, block until answered."""
+        """Show question, switch input to ask/selection mode, block until answered."""
         from llm_agent.formatting import bold as _bold
         text = f"\n  {_bold(question)}"
         if choices:
@@ -310,10 +333,19 @@ class TUIDisplay(Display):
                 else:
                     text += f"\n    {dim(str(i)+'.')} {label}"
         self._write(text)
-        self._ask_event.clear()
-        self._app.call_from_thread(self._app_enter_ask_mode)
-        self._ask_event.wait()
-        return self._ask_result
+
+        if choices:
+            # Selection mode — OptionList widget
+            self._selection_event.clear()
+            self._app.call_from_thread(self._app_enter_selection_mode, choices)
+            self._selection_event.wait()
+            return self._selection_result
+        else:
+            # Free-text mode — existing ask_mode
+            self._ask_event.clear()
+            self._app.call_from_thread(self._app_enter_ask_mode)
+            self._ask_event.wait()
+            return self._ask_result
 
     def _app_enter_ask_mode(self):
         """Switch the input widget to ask mode."""
@@ -324,6 +356,30 @@ class TUIDisplay(Display):
         inp.value = ""
         app.query_one("#status-tokens", Static).update(
             Text.from_ansi(dim("awaiting answer..."))
+        )
+
+    def _app_enter_selection_mode(self, choices):
+        """Hide PromptInput, mount a ChoiceList widget for arrow-key selection."""
+        app = self._app
+        app._selection_mode = True
+        inp = app.query_one("#prompt", PromptInput)
+        inp.display = False
+
+        labels = []
+        for choice in choices:
+            label = choice.get("label", "")
+            desc = choice.get("description", "")
+            if desc:
+                labels.append(f"{label} — {desc}")
+            else:
+                labels.append(label)
+
+        choice_list = ChoiceList(*labels, id="choice-list")
+        container = app.query_one("#input-row", Horizontal)
+        container.mount(choice_list)
+        choice_list.focus()
+        app.query_one("#status-tokens", Static).update(
+            Text.from_ansi(dim("↑/↓ to navigate, Enter to select"))
         )
 
     def auto_approved(self, preview_lines):
@@ -400,6 +456,15 @@ Screen {
     border: none;
 }
 
+#choice-list {
+    height: auto;
+    max-height: 8;
+    background: $background;
+    border: none;
+    padding: 0;
+    scrollbar-size: 0 0;
+}
+
 Rule {
     color: #d0d0d0;
     margin: 0;
@@ -450,6 +515,7 @@ class AgentApp(App):
         self._session = session
         self._confirm_mode = False
         self._ask_mode = False
+        self._selection_mode = False
         self._busy = False
         self._streaming = False
         self._tui_display = None
@@ -592,7 +658,7 @@ class AgentApp(App):
         inp = self.query_one("#prompt", PromptInput)
         if not inp.has_focus:
             return
-        if self._confirm_mode or self._ask_mode:
+        if self._confirm_mode or self._ask_mode or self._selection_mode:
             return
         if event.key == "ctrl+d":
             if inp.value == "":
@@ -635,21 +701,6 @@ class AgentApp(App):
             self._tui_display._ask_event.set()
             return
 
-        # Handle confirmation mode
-        if self._confirm_mode:
-            self._confirm_mode = False
-            inp = self.query_one("#prompt", PromptInput)
-            inp.placeholder = "Type a question..."
-            answer = text.lower()
-            self._tui_display._confirm_result = answer in ("", "y", "yes")
-            log = self.query_one("#conversation", RichLog)
-            if self._tui_display._confirm_result:
-                log.write(Text.from_ansi(dim("  \u2192 yes")))
-            else:
-                log.write(Text.from_ansi(dim("  \u2192 no")))
-            self._tui_display._confirm_event.set()
-            return
-
         if not text:
             return
 
@@ -688,6 +739,62 @@ class AgentApp(App):
 
         # Run the question in a worker thread
         self._run_agent(text)
+
+    def _exit_choice_list(self):
+        """Remove ChoiceList widget and restore PromptInput."""
+        choice_list = self.query_one("#choice-list", ChoiceList)
+        choice_list.remove()
+        inp = self.query_one("#prompt", PromptInput)
+        inp.display = True
+        inp.focus()
+
+    def on_option_list_option_selected(self, event):
+        """Handle arrow-key selection from the ChoiceList widget."""
+        if self._confirm_mode:
+            self._confirm_mode = False
+            approved = str(event.option.prompt) == "Yes"
+            log = self.query_one("#conversation", RichLog)
+            log.write(Text.from_ansi(dim(f"  → {'yes' if approved else 'no'}")))
+            self._exit_choice_list()
+            self._tui_display._confirm_result = approved
+            self._tui_display._confirm_event.set()
+            return
+
+        if not self._selection_mode:
+            return
+        self._selection_mode = False
+        selected_label = str(event.option.prompt)
+        # Strip description suffix if present
+        if " — " in selected_label:
+            selected_label = selected_label.split(" — ", 1)[0]
+
+        log = self.query_one("#conversation", RichLog)
+        log.write(Text.from_ansi(dim(f"  → {selected_label}")))
+        self._exit_choice_list()
+
+        self._tui_display._selection_result = selected_label
+        self._tui_display._selection_event.set()
+
+    def on_choice_list_cancelled(self, event):
+        """Handle Escape — reject confirmation or cancel selection."""
+        log = self.query_one("#conversation", RichLog)
+
+        if self._confirm_mode:
+            self._confirm_mode = False
+            log.write(Text.from_ansi(dim("  → no")))
+            self._exit_choice_list()
+            self._tui_display._confirm_result = False
+            self._tui_display._confirm_event.set()
+            return
+
+        if not self._selection_mode:
+            return
+        self._selection_mode = False
+        log.write(Text.from_ansi(dim("  → (no answer provided)")))
+        self._exit_choice_list()
+
+        self._tui_display._selection_result = "(no answer provided)"
+        self._tui_display._selection_event.set()
 
     def _set_busy(self, active):
         """Update busy state and refresh the prompt marker."""
