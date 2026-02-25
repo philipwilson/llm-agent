@@ -100,6 +100,8 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
                     log_fn(params)
                 if entry.get("needs_confirm"):
                     output = entry["handler"](params, auto_approve=auto_approve)
+                elif entry.get("context"):
+                    output = entry["handler"](params, context=entry["context"])
                 else:
                     output = entry["handler"](params)
             except Exception as e:

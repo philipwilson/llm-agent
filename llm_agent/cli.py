@@ -17,9 +17,7 @@ import anthropic
 
 from llm_agent import VERSION
 from llm_agent.display import get_display
-from llm_agent.formatting import bold, dim, red, yellow, format_tokens
-from llm_agent.agent import agent_turn, invalidate_tool_cache
-from llm_agent.skills import load_all_skills, render_skill, format_skill_list
+from llm_agent.formatting import bold, dim, format_tokens
 from llm_agent.tools import base
 from llm_agent.tools.base import _resolve
 
@@ -344,69 +342,11 @@ def make_client(model):
     sys.exit(1)
 
 
-def run_question(client, model, conversation, user_input, auto_approve=False,
-                 thinking_level=None):
-    """Run a single question through the agent loop.
-
-    Returns (updated_conversation, turn_usage) or (None, turn_usage) if cancelled.
-    """
-    turn_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
-
-    text, attachment_blocks, error = parse_attachments(user_input)
-    if error:
-        get_display().error(red(error))
-        return None, turn_usage
-
-    if attachment_blocks:
-        content = attachment_blocks + [{"type": "text", "text": text}]
-    else:
-        content = user_input
-
-    messages = list(conversation) + [{"role": "user", "content": content}]
-    steps = 0
-
-    if is_openai_model(model):
-        from llm_agent.openai_agent import openai_agent_turn
-        turn_fn = openai_agent_turn
-    elif is_gemini_model(model):
-        from llm_agent.gemini_agent import gemini_agent_turn
-        turn_fn = gemini_agent_turn
-    else:
-        turn_fn = agent_turn
-
-    max_steps = MAX_STEPS_GEMINI if is_gemini_model(model) else MAX_STEPS
-
-    extra_kwargs = {}
-    if is_gemini_model(model) and thinking_level:
-        extra_kwargs["thinking_level"] = thinking_level
-
-    try:
-        while True:
-            messages, done = turn_fn(
-                client, model, messages, auto_approve, usage_totals=turn_usage,
-                **extra_kwargs
-            )
-            if done:
-                break
-            steps += 1
-            if steps >= max_steps:
-                get_display().error(f"\n{yellow(f'(hit step limit of {max_steps}, stopping)')}")
-                break
-    except KeyboardInterrupt:
-        get_display().status(f"(interrupted)")
-        return None, turn_usage
-
-    return messages, turn_usage
-
-
-def agent_loop(client, model, auto_approve=False, thinking_level=None):
+def agent_loop(session):
     display = get_display()
-    mode = "YOLO mode" if auto_approve else "confirm mode"
-    display.info(f"{bold('Agent ready')} {dim(f'(model: {model}, {mode})')}")
+    mode = "YOLO mode" if session.auto_approve else "confirm mode"
+    display.info(f"{bold('Agent ready')} {dim(f'(model: {session.model}, {mode})')}")
     display.status("Type a question, /clear, /mcp, /model, /thinking, /skills, /version, or 'quit'.\n")
-    skills = load_all_skills()
-    conversation = []
-    session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
     update_terminal_title()
 
     while True:
@@ -421,98 +361,18 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
         if user_input.lower() in ("quit", "exit"):
             display.info("Bye.")
             break
-        if user_input.strip() == "/clear":
-            conversation = []
-            session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
-            display.status("(conversation cleared)")
-            continue
-        if user_input.strip() == "/version":
-            display.status(f"llm-agent v{VERSION} (model: {model})")
-            continue
-        if user_input.strip().startswith("/model"):
-            parts = user_input.strip().split()
-            if len(parts) == 1:
-                display.status(f"(model: {model})")
-                display.status(f"  available: {', '.join(MODELS.keys())}")
-            elif parts[1] in MODELS:
-                new_model = MODELS[parts[1]]
-                old_provider = ("gemini" if is_gemini_model(model)
-                                else "openai" if is_openai_model(model)
-                                else "anthropic")
-                new_provider = ("gemini" if is_gemini_model(new_model)
-                                else "openai" if is_openai_model(new_model)
-                                else "anthropic")
-                if new_provider != old_provider:
-                    client = make_client(new_model)
-                    conversation = []
-                    display.status(f"(switched to {new_model}, conversation cleared)")
-                else:
-                    display.status(f"(switched to {new_model})")
-                model = new_model
-                # Apply per-model thinking default unless user has explicitly set one
-                default_thinking = DEFAULT_THINKING.get(new_model)
-                if default_thinking and not thinking_level:
-                    thinking_level = default_thinking
-                    display.status(f"(thinking: {thinking_level})")
-                setup_delegate(client, model, auto_approve, thinking_level)
-                skills = load_all_skills()
-            else:
-                display.status(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})")
-            continue
-        if user_input.strip().startswith("/thinking"):
-            parts = user_input.strip().split()
-            if len(parts) == 1:
-                level = thinking_level or "off (model default)"
-                display.status(f"(thinking: {level})")
-            elif parts[1] == "off":
-                thinking_level = None
-                display.status("(thinking: off, model decides)")
-            elif parts[1] in ("low", "medium", "high"):
-                if not is_gemini_model(model):
-                    display.status("(warning: --thinking is only supported for Gemini models)")
-                thinking_level = parts[1]
-                display.status(f"(thinking: {thinking_level})")
-            else:
-                display.status(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)")
-            continue
-        if user_input.strip() == "/mcp":
-            try:
-                from llm_agent.mcp_client import get_mcp_manager
-                mgr = get_mcp_manager()
-                if mgr._sessions:
-                    display.status("MCP servers:")
-                    display.status(mgr.format_status())
-                else:
-                    display.status("(no MCP servers connected)")
-            except Exception:
-                display.status("(MCP not available)")
-            continue
-        if user_input.strip() == "/skills":
-            skills = load_all_skills()
-            if skills:
-                display.status("Available skills:")
-                display.status(format_skill_list(skills))
-            else:
-                display.status("(no skills found — add SKILL.md files in .skills/ or ~/.skills/)")
-            continue
-        if user_input.startswith("/"):
-            parts = user_input.split(None, 1)
-            skill_name = parts[0][1:]
-            if skill_name in skills:
-                args_string = parts[1] if len(parts) > 1 else ""
-                user_input = render_skill(skills[skill_name], args_string)
-                display.status(f"  (skill: {skill_name})")
-            else:
-                display.status(f"(unknown command '/{skill_name}')")
+
+        result = session.handle_command(user_input)
+        if result is not None:
+            messages, transformed = result
+            for msg in messages:
+                display.status(msg)
+            if transformed is None:
                 continue
+            user_input = transformed
 
-        result, turn_usage = run_question(
-            client, model, conversation, user_input, auto_approve,
-            thinking_level=thinking_level
-        )
+        success, turn_usage = session.run_question(user_input)
 
-        for key in ("input", "output", "cache_read", "cache_create"):
-            session_usage[key] += turn_usage[key]
         if turn_usage["input"] > 0 or turn_usage["output"] > 0:
             cache_info = ""
             if turn_usage["cache_read"] > 0:
@@ -520,68 +380,21 @@ def agent_loop(client, model, auto_approve=False, thinking_level=None):
             context_info = ""
             last_input = turn_usage.get("last_input", 0)
             if last_input > 0:
-                window = CONTEXT_WINDOWS.get(model, 200_000)
+                window = CONTEXT_WINDOWS.get(session.model, 200_000)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_info = f" | context: {remaining_pct:.0f}% remaining"
             display.status(
                 f"  [{format_tokens(turn_usage['input'])} in, "
                 f"{format_tokens(turn_usage['output'])} out{cache_info} | "
-                f"session: {format_tokens(session_usage['input'])} in, "
-                f"{format_tokens(session_usage['output'])} out{context_info}]"
+                f"session: {format_tokens(session.session_usage['input'])} in, "
+                f"{format_tokens(session.session_usage['output'])} out{context_info}]"
             )
 
-        if result is None:
-            # Cancelled -- don't update conversation history
-            update_terminal_title()
-            continue
-
-        # Keep the conversation history for follow-up questions,
-        # but trim old turns to avoid exceeding the model's context window.
-        conversation = result
-        last_input = turn_usage.get("last_input", 0)
-        old_len = len(conversation)
-        conversation = trim_conversation(conversation, last_input, model, client=client)
-        if len(conversation) < old_len:
-            removed = old_len - len(conversation)
-            display.status(f"  (trimmed {removed} old messages to fit context window)")
+        if turn_usage.get("trimmed", 0) > 0:
+            display.status(f"  (trimmed {turn_usage['trimmed']} old messages to fit context window)")
         update_terminal_title()
 
     reset_terminal_title()
-
-
-def setup_delegate(client, model, auto_approve, thinking_level):
-    """Configure the delegate tool with available agents and a run callback."""
-    from llm_agent.agents import load_all_agents, run_subagent
-    from llm_agent.tools import delegate
-
-    agents = load_all_agents()
-
-    # Update the delegate tool description with available agents
-    agent_lines = []
-    for name, defn in sorted(agents.items()):
-        desc = defn.get("description", "")
-        agent_model = defn.get("model") or "(inherits parent)"
-        agent_lines.append(f"  - {name}: {desc} [model: {agent_model}]")
-    agent_list = "\n".join(agent_lines)
-
-    delegate.SCHEMA["description"] = (
-        "Delegate a task to a specialized subagent that runs independently "
-        "and returns its findings. Use 'explore' for fast read-only research. "
-        "Use 'code' for tasks that need file writes or commands.\n\n"
-        f"Available agents:\n{agent_list}"
-    )
-
-    # Invalidate cached tools so the updated description is picked up
-    invalidate_tool_cache()
-
-    # Set up the callback closure
-    def _callback(agent_name, task):
-        return run_subagent(
-            agent_name, task, client, model, auto_approve,
-            thinking_level=thinking_level,
-        )
-
-    delegate._run_subagent = _callback
 
 
 def main():
@@ -626,9 +439,9 @@ def main():
     model = MODELS[args.model]
     thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
     client = make_client(model)
-    setup_delegate(client, model, auto_approve=args.yolo, thinking_level=thinking)
-    from llm_agent.agent import refresh_project_context
-    refresh_project_context()
+
+    from llm_agent.session import Session
+    session = Session(client, model, auto_approve=args.yolo, thinking_level=thinking)
 
     # Initialize MCP servers (if configured)
     mcp_manager = None
@@ -649,10 +462,7 @@ def main():
 
     if args.c:
         try:
-            _, turn_usage = run_question(
-                client, model, [], args.c, auto_approve=args.yolo,
-                thinking_level=thinking
-            )
+            success, turn_usage = session.run_question(args.c)
             if turn_usage["input"] > 0 or turn_usage["output"] > 0:
                 cache_info = ""
                 if turn_usage["cache_read"] > 0:
@@ -669,17 +479,14 @@ def main():
             if use_tui:
                 try:
                     from llm_agent.tui import run_tui
-                    run_tui(client, model, auto_approve=args.yolo,
-                            thinking_level=thinking)
+                    run_tui(session)
                 except ImportError:
                     # textual not installed, fall back to readline
                     setup_readline()
-                    agent_loop(client, model, auto_approve=args.yolo,
-                               thinking_level=thinking)
+                    agent_loop(session)
             else:
                 setup_readline()
-                agent_loop(client, model, auto_approve=args.yolo,
-                           thinking_level=thinking)
+                agent_loop(session)
         finally:
             _stop_mcp()
 

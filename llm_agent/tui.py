@@ -11,8 +11,7 @@ from textual.theme import Theme
 from textual.widgets import RichLog, Rule, Static, TextArea
 from rich.text import Text
 
-from llm_agent import VERSION
-from llm_agent.display import Display, set_display, get_display
+from llm_agent.display import Display, set_display
 from llm_agent.formatting import bold, dim, format_tokens
 
 
@@ -415,21 +414,15 @@ class AgentApp(App):
         Binding("ctrl+q", "quit", "Quit", show=False),
     ]
 
-    def __init__(self, client, model, auto_approve=False, thinking_level=None):
+    def __init__(self, session):
         super().__init__()
-        self._client = client
-        self._model = model
-        self._auto_approve = auto_approve
-        self._thinking_level = thinking_level
-        self._conversation = []
-        self._session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+        self._session = session
         self._confirm_mode = False
         self._busy = False
         self._streaming = False
         self._tui_display = None
         self._history = []
         self._history_index = -1
-        self._last_response = ""  # last assistant text, for /copy
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -462,22 +455,11 @@ class AgentApp(App):
         self._tui_display = TUIDisplay(self)
         set_display(self._tui_display)
 
-        # Load skills
-        from llm_agent.skills import load_all_skills
-        self._skills = load_all_skills()
-
-        # Set up delegate and project context
-        from llm_agent.cli import setup_delegate
-        setup_delegate(self._client, self._model, self._auto_approve,
-                       self._thinking_level)
-        from llm_agent.agent import refresh_project_context
-        refresh_project_context()
-
         # Show welcome
-        mode = "YOLO mode" if self._auto_approve else "confirm mode"
+        mode = "YOLO mode" if self._session.auto_approve else "confirm mode"
         log = self.query_one("#conversation", RichLog)
         log.write(Text.from_ansi(
-            f"{bold('Agent ready')} {dim(f'(model: {self._model}, {mode})')}"
+            f"{bold('Agent ready')} {dim(f'(model: {self._session.model}, {mode})')}"
         ))
         log.write(Text.from_ansi(
             dim("Type a question, /clear, /copy, /mcp, /model, /thinking, /skills, /version, or 'quit'.")
@@ -501,9 +483,9 @@ class AgentApp(App):
 
     def _update_status_bar(self, turn_usage=None):
         # Model + mode
-        mode = "YOLO" if self._auto_approve else "confirm"
+        mode = "YOLO" if self._session.auto_approve else "confirm"
         self.query_one("#status-model", Static).update(
-            Text.from_ansi(dim(f" {self._model} ({mode})"))
+            Text.from_ansi(dim(f" {self._session.model} ({mode})"))
         )
 
         # Token usage: turn + session
@@ -516,7 +498,7 @@ class AgentApp(App):
                 f"turn: {format_tokens(turn_usage['input'])} in, "
                 f"{format_tokens(turn_usage['output'])} out{cache_info}"
             )
-        su = self._session_usage
+        su = self._session.session_usage
         if su["input"] > 0 or su["output"] > 0:
             token_parts.append(
                 f"session: {format_tokens(su['input'])} in, "
@@ -532,7 +514,7 @@ class AgentApp(App):
             last_input = turn_usage.get("last_input", 0)
             if last_input > 0:
                 from llm_agent.cli import CONTEXT_WINDOWS
-                window = CONTEXT_WINDOWS.get(self._model, 200_000)
+                window = CONTEXT_WINDOWS.get(self._session.model, 200_000)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_text = dim(f"context: {remaining_pct:.0f}% remaining ")
         self.query_one("#status-context", Static).update(
@@ -611,9 +593,9 @@ class AgentApp(App):
             self._tui_display._confirm_result = answer in ("", "y", "yes")
             log = self.query_one("#conversation", RichLog)
             if self._tui_display._confirm_result:
-                log.write(Text.from_ansi(dim("  → yes")))
+                log.write(Text.from_ansi(dim("  \u2192 yes")))
             else:
-                log.write(Text.from_ansi(dim("  → no")))
+                log.write(Text.from_ansi(dim("  \u2192 no")))
             self._tui_display._confirm_event.set()
             return
 
@@ -626,58 +608,32 @@ class AgentApp(App):
         # Show user input
         log.write(Text.from_ansi(f"\n{bold('>')} {text}"))
 
-        # Handle built-in commands
+        # Handle quit
         if text.lower() in ("quit", "exit"):
             self.exit()
             return
 
-        if text == "/clear":
-            self._conversation = []
-            self._session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
-            log.clear()
-            log.write(Text.from_ansi(dim("(conversation cleared)")))
-            self._update_status_bar()
-            return
-
-        if text == "/version":
-            log.write(Text.from_ansi(dim(f"llm-agent v{VERSION} (model: {self._model})")))
-            return
-
-        if text.startswith("/model"):
-            self._handle_model_command(text)
-            return
-
-        if text.startswith("/thinking"):
-            self._handle_thinking_command(text)
-            return
-
-        if text == "/mcp":
-            self._handle_mcp_command()
-            return
-
-        if text == "/skills":
-            self._handle_skills_command()
-            return
-
+        # TUI-specific /copy command
         if text == "/copy":
-            if self._last_response:
-                self.copy_to_clipboard(self._last_response)
+            if self._session.last_response:
+                self.copy_to_clipboard(self._session.last_response)
                 log.write(Text.from_ansi(dim("(last response copied to clipboard)")))
             else:
                 log.write(Text.from_ansi(dim("(no response to copy)")))
             return
 
-        if text.startswith("/"):
-            parts = text.split(None, 1)
-            skill_name = parts[0][1:]
-            if skill_name in self._skills:
-                args_string = parts[1] if len(parts) > 1 else ""
-                from llm_agent.skills import render_skill
-                text = render_skill(self._skills[skill_name], args_string)
-                log.write(Text.from_ansi(dim(f"  (skill: {skill_name})")))
-            else:
-                log.write(Text.from_ansi(dim(f"(unknown command '/{skill_name}')")))
+        # Handle commands and skills via Session
+        result = self._session.handle_command(text)
+        if result is not None:
+            messages, transformed = result
+            if text.strip() == "/clear":
+                log.clear()
+            for msg in messages:
+                log.write(Text.from_ansi(dim(msg)))
+            self._update_status_bar()
+            if transformed is None:
                 return
+            text = transformed
 
         # Run the question in a worker thread
         self._run_agent(text)
@@ -710,134 +666,31 @@ class AgentApp(App):
     @work(thread=True)
     def _run_agent(self, user_input):
         """Run the agent in a background thread."""
-        from llm_agent.cli import run_question, trim_conversation, CONTEXT_WINDOWS
-
         self.call_from_thread(self._set_busy, True)
         try:
-            result, turn_usage = run_question(
-                self._client, self._model, self._conversation, user_input,
-                self._auto_approve, thinking_level=self._thinking_level,
-            )
+            success, turn_usage = self._session.run_question(user_input)
         finally:
             self.call_from_thread(self._set_busy, False)
-
-        for key in ("input", "output", "cache_read", "cache_create"):
-            self._session_usage[key] += turn_usage[key]
 
         self.call_from_thread(self._update_status_bar, turn_usage)
         self.call_from_thread(self._update_title)
 
-        if result is None:
-            return
-
-        # Extract last assistant text for /copy
-        for msg in reversed(result):
-            if msg.get("role") == "assistant":
-                content = msg.get("content")
-                if isinstance(content, str):
-                    self._last_response = content
-                elif isinstance(content, list):
-                    texts = [b["text"] for b in content if b.get("type") == "text" and b.get("text")]
-                    if texts:
-                        self._last_response = "\n".join(texts)
-                break
-
-        self._conversation = result
-        last_input = turn_usage.get("last_input", 0)
-        old_len = len(self._conversation)
-        self._conversation = trim_conversation(
-            self._conversation, last_input, self._model, client=self._client
-        )
-        if len(self._conversation) < old_len:
-            removed = old_len - len(self._conversation)
-            self._tui_display.status(f"  (trimmed {removed} old messages to fit context window)")
-
-    def _handle_model_command(self, text):
-        from llm_agent.cli import MODELS, is_gemini_model, is_openai_model, make_client, setup_delegate, DEFAULT_THINKING
-        from llm_agent.skills import load_all_skills
-        log = self.query_one("#conversation", RichLog)
-        parts = text.strip().split()
-        if len(parts) == 1:
-            log.write(Text.from_ansi(dim(f"(model: {self._model})")))
-            log.write(Text.from_ansi(dim(f"  available: {', '.join(MODELS.keys())}")))
-        elif parts[1] in MODELS:
-            new_model = MODELS[parts[1]]
-            old_provider = ("gemini" if is_gemini_model(self._model)
-                            else "openai" if is_openai_model(self._model)
-                            else "anthropic")
-            new_provider = ("gemini" if is_gemini_model(new_model)
-                            else "openai" if is_openai_model(new_model)
-                            else "anthropic")
-            if new_provider != old_provider:
-                self._client = make_client(new_model)
-                self._conversation = []
-                log.write(Text.from_ansi(dim(f"(switched to {new_model}, conversation cleared)")))
-            else:
-                log.write(Text.from_ansi(dim(f"(switched to {new_model})")))
-            self._model = new_model
-            default_thinking = DEFAULT_THINKING.get(new_model)
-            if default_thinking and not self._thinking_level:
-                self._thinking_level = default_thinking
-                log.write(Text.from_ansi(dim(f"(thinking: {self._thinking_level})")))
-            setup_delegate(self._client, self._model, self._auto_approve, self._thinking_level)
-            self._skills = load_all_skills()
-            self._update_status_bar()
-        else:
-            log.write(Text.from_ansi(dim(f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})")))
-
-    def _handle_thinking_command(self, text):
-        from llm_agent.cli import is_gemini_model
-        log = self.query_one("#conversation", RichLog)
-        parts = text.strip().split()
-        if len(parts) == 1:
-            level = self._thinking_level or "off (model default)"
-            log.write(Text.from_ansi(dim(f"(thinking: {level})")))
-        elif parts[1] == "off":
-            self._thinking_level = None
-            log.write(Text.from_ansi(dim("(thinking: off, model decides)")))
-        elif parts[1] in ("low", "medium", "high"):
-            if not is_gemini_model(self._model):
-                log.write(Text.from_ansi(dim("(warning: --thinking is only supported for Gemini models)")))
-            self._thinking_level = parts[1]
-            log.write(Text.from_ansi(dim(f"(thinking: {self._thinking_level})")))
-        else:
-            log.write(Text.from_ansi(dim(f"(unknown thinking level '{parts[1]}', use low/medium/high/off)")))
-
-    def _handle_mcp_command(self):
-        log = self.query_one("#conversation", RichLog)
-        try:
-            from llm_agent.mcp_client import get_mcp_manager
-            mgr = get_mcp_manager()
-            if mgr._sessions:
-                log.write(Text.from_ansi(dim("MCP servers:")))
-                log.write(Text.from_ansi(dim(mgr.format_status())))
-            else:
-                log.write(Text.from_ansi(dim("(no MCP servers connected)")))
-        except Exception:
-            log.write(Text.from_ansi(dim("(MCP not available)")))
-
-    def _handle_skills_command(self):
-        from llm_agent.skills import load_all_skills, format_skill_list
-        log = self.query_one("#conversation", RichLog)
-        self._skills = load_all_skills()
-        if self._skills:
-            log.write(Text.from_ansi(dim("Available skills:")))
-            log.write(Text.from_ansi(dim(format_skill_list(self._skills))))
-        else:
-            log.write(Text.from_ansi(dim("(no skills found — add SKILL.md files in .skills/ or ~/.skills/)")))
+        if turn_usage.get("trimmed", 0) > 0:
+            self._tui_display.status(
+                f"  (trimmed {turn_usage['trimmed']} old messages to fit context window)"
+            )
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_tui(client, model, auto_approve=False, thinking_level=None):
+def run_tui(session):
     """Launch the Textual TUI."""
     import os as _os
 
     from llm_agent.cli import reset_terminal_title
-    app = AgentApp(client, model, auto_approve=auto_approve,
-                   thinking_level=thinking_level)
+    app = AgentApp(session)
     try:
         app.run()
     finally:

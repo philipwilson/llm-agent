@@ -34,19 +34,15 @@ def log(params):
 
 LOG = log
 
-# Callback set at runtime by cli.py to avoid circular imports.
-# Signature: _run_subagent(agent_name, task) -> str
-_run_subagent = None
-
-
-def handle(params):
+def handle(params, context=None):
     agent = params.get("agent", "")
     task = params.get("task", "")
 
     if not agent or not task:
         return "(error: both 'agent' and 'task' are required)"
 
-    if _run_subagent is None:
+    run_fn = (context or {}).get("run_subagent")
+    if run_fn is None:
         return "(error: delegate is not configured — subagent system not initialised)"
 
-    return _run_subagent(agent, task)
+    return run_fn(agent, task)
