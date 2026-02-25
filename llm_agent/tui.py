@@ -200,6 +200,25 @@ class ChoiceList(OptionList):
             event.stop()
 
 
+class SelectionPanel(Vertical):
+    """Self-contained panel with question, arrow-key options, and hint."""
+
+    def __init__(self, question, display_labels, clean_labels, hint="Esc to cancel"):
+        super().__init__(id="selection-panel")
+        self._question_text = question
+        self._display_labels = display_labels
+        self.clean_labels = clean_labels
+        self._hint_text = hint
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._question_text, id="sel-question")
+        yield ChoiceList(*self._display_labels, id="choice-list")
+        yield Static(self._hint_text, id="sel-hint")
+
+    def on_mount(self):
+        self.query_one("#choice-list", ChoiceList).focus()
+
+
 # ---------------------------------------------------------------------------
 # Light theme inspired by Claude Code
 # ---------------------------------------------------------------------------
@@ -306,42 +325,37 @@ class TUIDisplay(Display):
         return self._confirm_result
 
     def _app_enter_confirm(self, prompt_text):
-        """Hide PromptInput, mount a Yes/No ChoiceList for confirmation."""
+        """Hide input row, mount a SelectionPanel with Yes/No options."""
         app = self._app
         app._confirm_mode = True
-        inp = app.query_one("#prompt", PromptInput)
-        inp.display = False
+        input_row = app.query_one("#input-row")
+        input_row.display = False
 
-        choice_list = ChoiceList("Yes", "No", id="choice-list")
-        container = app.query_one("#input-row", Horizontal)
-        container.mount(choice_list)
-        choice_list.focus()
-        app.query_one("#status-tokens", Static).update(
-            Text.from_ansi(dim("Enter to approve, ↓ N for reject"))
+        question = prompt_text.replace(" [Y/n]", "").replace(" [y/N]", "").strip()
+        if not question:
+            question = "Proceed?"
+        panel = SelectionPanel(
+            question=question,
+            display_labels=["1. Yes", "2. No"],
+            clean_labels=["Yes", "No"],
+            hint="Esc to cancel",
         )
+        input_row.parent.mount(panel, after=input_row)
 
     def ask_user(self, question, choices=None):
         """Show question, switch input to ask/selection mode, block until answered."""
-        from llm_agent.formatting import bold as _bold
-        text = f"\n  {_bold(question)}"
         if choices:
-            for i, choice in enumerate(choices, 1):
-                label = choice.get("label", "")
-                desc = choice.get("description", "")
-                if desc:
-                    text += f"\n    {dim(str(i)+'.')} {label} — {dim(desc)}"
-                else:
-                    text += f"\n    {dim(str(i)+'.')} {label}"
-        self._write(text)
-
-        if choices:
-            # Selection mode — OptionList widget
+            # Selection mode — full panel with question and options
             self._selection_event.clear()
-            self._app.call_from_thread(self._app_enter_selection_mode, choices)
+            self._app.call_from_thread(
+                self._app_enter_selection_mode, question, choices
+            )
             self._selection_event.wait()
             return self._selection_result
         else:
-            # Free-text mode — existing ask_mode
+            # Free-text mode — show question in conversation, use PromptInput
+            from llm_agent.formatting import bold as _bold
+            self._write(f"\n  {_bold(question)}")
             self._ask_event.clear()
             self._app.call_from_thread(self._app_enter_ask_mode)
             self._ask_event.wait()
@@ -358,29 +372,31 @@ class TUIDisplay(Display):
             Text.from_ansi(dim("awaiting answer..."))
         )
 
-    def _app_enter_selection_mode(self, choices):
-        """Hide PromptInput, mount a ChoiceList widget for arrow-key selection."""
+    def _app_enter_selection_mode(self, question, choices):
+        """Hide input row, mount a SelectionPanel with the choices."""
         app = self._app
         app._selection_mode = True
-        inp = app.query_one("#prompt", PromptInput)
-        inp.display = False
+        input_row = app.query_one("#input-row")
+        input_row.display = False
 
-        labels = []
-        for choice in choices:
+        display_labels = []
+        clean_labels = []
+        for i, choice in enumerate(choices, 1):
             label = choice.get("label", "")
             desc = choice.get("description", "")
+            clean_labels.append(label)
             if desc:
-                labels.append(f"{label} — {desc}")
+                display_labels.append(f"{i}. {label} — {desc}")
             else:
-                labels.append(label)
+                display_labels.append(f"{i}. {label}")
 
-        choice_list = ChoiceList(*labels, id="choice-list")
-        container = app.query_one("#input-row", Horizontal)
-        container.mount(choice_list)
-        choice_list.focus()
-        app.query_one("#status-tokens", Static).update(
-            Text.from_ansi(dim("↑/↓ to navigate, Enter to select"))
+        panel = SelectionPanel(
+            question=question,
+            display_labels=display_labels,
+            clean_labels=clean_labels,
+            hint="Esc to cancel",
         )
+        input_row.parent.mount(panel, after=input_row)
 
     def auto_approved(self, preview_lines):
         for line in preview_lines:
@@ -456,13 +472,34 @@ Screen {
     border: none;
 }
 
+#selection-panel {
+    height: auto;
+    max-height: 14;
+    background: $panel;
+    padding: 1 2;
+}
+
+#sel-question {
+    height: auto;
+    background: $panel;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
 #choice-list {
     height: auto;
     max-height: 8;
-    background: $background;
+    background: $panel;
     border: none;
     padding: 0;
     scrollbar-size: 0 0;
+}
+
+#sel-hint {
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    padding: 1 0 0 0;
 }
 
 Rule {
@@ -740,22 +777,24 @@ class AgentApp(App):
         # Run the question in a worker thread
         self._run_agent(text)
 
-    def _exit_choice_list(self):
-        """Remove ChoiceList widget and restore PromptInput."""
-        choice_list = self.query_one("#choice-list", ChoiceList)
-        choice_list.remove()
-        inp = self.query_one("#prompt", PromptInput)
-        inp.display = True
-        inp.focus()
+    def _exit_selection_panel(self):
+        """Remove SelectionPanel and restore input row."""
+        panel = self.query_one("#selection-panel", SelectionPanel)
+        panel.remove()
+        input_row = self.query_one("#input-row")
+        input_row.display = True
+        self.query_one("#prompt", PromptInput).focus()
 
     def on_option_list_option_selected(self, event):
-        """Handle arrow-key selection from the ChoiceList widget."""
+        """Handle arrow-key selection from the SelectionPanel."""
+        panel = self.query_one("#selection-panel", SelectionPanel)
+        log = self.query_one("#conversation", RichLog)
+
         if self._confirm_mode:
             self._confirm_mode = False
-            approved = str(event.option.prompt) == "Yes"
-            log = self.query_one("#conversation", RichLog)
+            approved = panel.clean_labels[event.option_index] == "Yes"
             log.write(Text.from_ansi(dim(f"  → {'yes' if approved else 'no'}")))
-            self._exit_choice_list()
+            self._exit_selection_panel()
             self._tui_display._confirm_result = approved
             self._tui_display._confirm_event.set()
             return
@@ -763,26 +802,24 @@ class AgentApp(App):
         if not self._selection_mode:
             return
         self._selection_mode = False
-        selected_label = str(event.option.prompt)
-        # Strip description suffix if present
-        if " — " in selected_label:
-            selected_label = selected_label.split(" — ", 1)[0]
-
-        log = self.query_one("#conversation", RichLog)
+        selected_label = panel.clean_labels[event.option_index]
+        # Write question + answer to conversation history
+        log.write(Text.from_ansi(f"\n  {bold(panel._question_text)}"))
         log.write(Text.from_ansi(dim(f"  → {selected_label}")))
-        self._exit_choice_list()
+        self._exit_selection_panel()
 
         self._tui_display._selection_result = selected_label
         self._tui_display._selection_event.set()
 
     def on_choice_list_cancelled(self, event):
         """Handle Escape — reject confirmation or cancel selection."""
+        panel = self.query_one("#selection-panel", SelectionPanel)
         log = self.query_one("#conversation", RichLog)
 
         if self._confirm_mode:
             self._confirm_mode = False
             log.write(Text.from_ansi(dim("  → no")))
-            self._exit_choice_list()
+            self._exit_selection_panel()
             self._tui_display._confirm_result = False
             self._tui_display._confirm_event.set()
             return
@@ -790,8 +827,9 @@ class AgentApp(App):
         if not self._selection_mode:
             return
         self._selection_mode = False
+        log.write(Text.from_ansi(f"\n  {bold(panel._question_text)}"))
         log.write(Text.from_ansi(dim("  → (no answer provided)")))
-        self._exit_choice_list()
+        self._exit_selection_panel()
 
         self._tui_display._selection_result = "(no answer provided)"
         self._tui_display._selection_event.set()
