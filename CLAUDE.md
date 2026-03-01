@@ -50,13 +50,26 @@ tests/
     test_skills.py             — skill parsing, rendering, discovery
     test_session.py            — Session command routing, state management
     test_agents.py             — agent definitions, custom agent loading, tool filtering
+    test_display.py            — Display protocol, streaming suppression, confirm/ask
     tools/
         conftest.py            — tool-specific fixtures (shell reset)
         test_run_command.py    — ShellState, background tasks, cwd tracking
         test_check_task.py     — background task polling
         test_edit_file.py      — fuzzy matching, line ranges, batch edits
         test_read_file.py      — line ranges, offset/limit, error handling
+        test_write_file.py     — create, overwrite, parent dirs, preview
+        test_list_directory.py — entries, hidden files, sizes, symlinks
+        test_glob_files.py     — patterns, recursive **, max_results
+        test_file_outline.py   — symbol extraction for Python/JS/Go/Rust
+        test_search_files.py   — regex search, glob filter, max_results
+        test_delegate.py       — missing params, context, run_subagent callback
+        test_ask_user.py       — free-text, choices, numeric resolution
         test_tool_dispatch.py  — parallel/sequential routing, timeouts
+    integration/
+        test_agent_turn.py     — fake Anthropic streaming, tool dispatch, multi-turn
+        test_trim_conversation.py — trimming with mock summarization
+        test_subagent.py       — tool filtering, model override, streaming suppression
+        test_mcp_registration.py — register/unregister, build_tool_set, format helpers
 ```
 
 **Writing new tests:**
