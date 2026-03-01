@@ -16,6 +16,7 @@ openai = ["openai"]
 tui = ["textual>=1.0"]
 mcp = ["mcp>=1.0"]
 all = ["anthropic[vertex]", "google-genai", "openai", "textual>=1.0", "mcp>=1.0"]
+test = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-mock>=3.10", "pytest-timeout>=2.1"]
 
 [project.scripts]
 llm-agent = "llm_agent.cli:main"
@@ -25,6 +26,10 @@ include = ["llm_agent*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "llm_agent.VERSION"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 10
 
 [tool.setuptools.package-data]
 llm_agent = ["system_prompt.txt"]

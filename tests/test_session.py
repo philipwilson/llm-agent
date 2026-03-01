@@ -1,0 +1,103 @@
+"""Tests for Session: command routing, state management."""
+
+import pytest
+
+from llm_agent.session import Session
+
+
+class FakeClient:
+    """Minimal fake client for Session init."""
+    pass
+
+
+@pytest.fixture
+def session(monkeypatch):
+    """Create a Session with minimal mocking."""
+    # Prevent refresh_project_context from running real git commands
+    monkeypatch.setattr(
+        "llm_agent.agent.refresh_project_context",
+        lambda: "Test project context",
+    )
+    return Session(FakeClient(), "claude-sonnet-4-6", auto_approve=False)
+
+
+class TestHandleCommand:
+    def test_clear(self, session):
+        session.conversation = [{"role": "user", "content": "hi"}]
+        result = session.handle_command("/clear")
+        assert result is not None
+        messages, transformed = result
+        assert transformed is None
+        assert "cleared" in messages[0]
+        assert session.conversation == []
+
+    def test_version(self, session):
+        result = session.handle_command("/version")
+        messages, transformed = result
+        assert transformed is None
+        assert any("llm-agent" in m for m in messages)
+
+    def test_model_show_current(self, session):
+        result = session.handle_command("/model")
+        messages, _ = result
+        assert any("claude-sonnet-4-6" in m for m in messages)
+
+    def test_model_unknown(self, session):
+        result = session.handle_command("/model foobar")
+        messages, _ = result
+        assert any("unknown" in m for m in messages)
+
+    def test_thinking_show(self, session):
+        result = session.handle_command("/thinking")
+        messages, _ = result
+        assert any("thinking" in m.lower() for m in messages)
+
+    def test_thinking_set(self, session):
+        session.handle_command("/thinking high")
+        assert session.thinking_level == "high"
+
+    def test_thinking_off(self, session):
+        session.thinking_level = "high"
+        session.handle_command("/thinking off")
+        assert session.thinking_level is None
+
+    def test_thinking_invalid(self, session):
+        result = session.handle_command("/thinking banana")
+        messages, _ = result
+        assert any("unknown" in m for m in messages)
+
+    def test_skills_command(self, session):
+        result = session.handle_command("/skills")
+        assert result is not None
+
+    def test_mcp_command(self, session):
+        result = session.handle_command("/mcp")
+        messages, _ = result
+        assert isinstance(messages, list)
+
+    def test_unknown_slash_command(self, session):
+        result = session.handle_command("/nonexistent")
+        messages, _ = result
+        assert any("unknown" in m for m in messages)
+
+    def test_non_command_returns_none(self, session):
+        result = session.handle_command("just a question")
+        assert result is None
+
+
+class TestClear:
+    def test_clears_conversation(self, session):
+        session.conversation = [{"role": "user", "content": "hi"}]
+        session.session_usage = {"input": 100, "output": 50, "cache_read": 10, "cache_create": 5}
+        session.clear()
+        assert session.conversation == []
+        assert session.session_usage["input"] == 0
+        assert session.session_usage["output"] == 0
+
+
+class TestSessionInit:
+    def test_defaults(self, session):
+        assert session.model == "claude-sonnet-4-6"
+        assert session.auto_approve is False
+        assert session.conversation == []
+        assert session.last_response == ""
