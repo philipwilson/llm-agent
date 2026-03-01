@@ -406,6 +406,11 @@ def agent_loop(session):
 def main():
     parser = argparse.ArgumentParser(description="Unix CLI agent powered by Claude")
     parser.add_argument(
+        "-V", "--version",
+        action="version",
+        version=f"llm-agent {VERSION}",
+    )
+    parser.add_argument(
         "-m", "--model",
         choices=list(MODELS.keys()),
         default=DEFAULT_MODEL,
