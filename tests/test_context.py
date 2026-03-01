@@ -42,6 +42,7 @@ class TestParsePackageJson:
         f = tmp_path / "package.json"
         f.write_text(json.dumps({"name": "my-app", "scripts": {"test": "jest"}}))
         result = _parse_package_json(str(f))
+        assert "my-app" in result
         assert "package.json" in result
         assert "test" in result
 

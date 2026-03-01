@@ -14,7 +14,7 @@ import sys
 import threading
 from contextlib import contextmanager
 
-from llm_agent.formatting import dim
+from llm_agent.formatting import bold, dim
 
 
 class Display:

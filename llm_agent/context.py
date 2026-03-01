@@ -65,7 +65,7 @@ def _parse_package_json(path):
         parts = [f"Node.js project: {name}" if name else "Node.js project"]
         if scripts:
             parts.append(f"scripts: {scripts}")
-        return " (package.json, " + ", ".join(parts[1:]) + ")" if len(parts) > 1 else parts[0] + " (package.json)"
+        return parts[0] + " (package.json, " + ", ".join(parts[1:]) + ")" if len(parts) > 1 else parts[0] + " (package.json)"
     except Exception:
         return "Node.js project (package.json)"
 
