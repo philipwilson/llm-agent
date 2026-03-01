@@ -16,7 +16,54 @@ pip install -e '.[openai]'    # with OpenAI support
 pip install -e '.[tui]'       # with Textual TUI
 pip install -e '.[mcp]'       # with MCP client support
 pip install -e '.[all]'       # all providers + TUI + MCP
+pip install -e '.[test]'      # pytest + plugins
 ```
+
+## Testing
+
+```bash
+pip install -e '.[test]'      # install test dependencies
+python -m pytest              # run all tests
+python -m pytest -v           # verbose output
+python -m pytest tests/test_is_dangerous.py  # run one file
+python -m pytest -k fuzzy     # run tests matching a pattern
+python -m pytest --cov=llm_agent  # with coverage report
+```
+
+Tests live in `tests/` and use pytest with a 10-second per-test timeout (configured in `pyproject.toml`).
+
+**Key fixtures** (in `tests/conftest.py`):
+- `mock_display` (autouse) — injects a `MockDisplay` via `set_display()` so tests never touch stdout/stdin. Captures all calls (`.logs`, `.confirms`, `.errors`, `.statuses`, etc.) for assertions.
+- `declining_display` — a `MockDisplay` that returns `False` from `confirm()`, for testing rejection paths.
+
+**Tool fixtures** (in `tests/tools/conftest.py`):
+- `reset_shell_cwd` (autouse) — resets the global `shell` singleton to a `tmp_path` before each tool test and restores it after. Also clears background tasks.
+
+**Test structure:**
+```
+tests/
+    conftest.py               — MockDisplay, shared fixtures
+    test_formatting.py         — truncate(), format_tokens()
+    test_is_dangerous.py       — is_dangerous() security checks (~30 cases)
+    test_cli_utils.py          — estimate_tokens, parse_attachments, model detection, trim_conversation
+    test_context.py            — project type detection, config parsers
+    test_skills.py             — skill parsing, rendering, discovery
+    test_session.py            — Session command routing, state management
+    test_agents.py             — agent definitions, custom agent loading, tool filtering
+    tools/
+        conftest.py            — tool-specific fixtures (shell reset)
+        test_run_command.py    — ShellState, background tasks, cwd tracking
+        test_check_task.py     — background task polling
+        test_edit_file.py      — fuzzy matching, line ranges, batch edits
+        test_read_file.py      — line ranges, offset/limit, error handling
+        test_tool_dispatch.py  — parallel/sequential routing, timeouts
+```
+
+**Writing new tests:**
+- The `MockDisplay` is injected automatically — no setup needed for stdout isolation.
+- Tool tests get a `tmp_path` as the shell's working directory via the autouse `reset_shell_cwd` fixture.
+- For tools needing confirmation, use `auto_approve=True` in `handle()` or use the `declining_display` fixture to test rejection.
+- Pure functions (`is_dangerous`, `truncate`, `format_tokens`, etc.) need no mocking at all.
 
 ## Running
 
@@ -92,7 +139,7 @@ llm_agent/
     session.py          — Session class (conversation state, token tracking, command routing)
     system_prompt.txt   — system prompt (edit without touching Python)    tools/
         __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls(), register/unregister_mcp_tools()
-        base.py         — ShellState, _resolve, confirm_edit, COMMAND_TIMEOUT
+        base.py         — ShellState, BackgroundTask, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
         list_directory.py — SCHEMA + handle
         search_files.py — SCHEMA + handle
@@ -102,9 +149,11 @@ llm_agent/
         web_search.py   — SCHEMA + handle
         write_file.py   — SCHEMA + handle
         edit_file.py    — SCHEMA + handle
-        run_command.py  — SCHEMA + handle + NEEDS_CONFIRM
+        run_command.py  — SCHEMA + handle + NEEDS_CONFIRM (supports run_in_background)
+        check_task.py   — SCHEMA + handle (poll background tasks)
         delegate.py     — SCHEMA + handle (subagent delegation)
         ask_user.py     — SCHEMA + handle + NEEDS_SEQUENTIAL (user questions)
+tests/                  — pytest test suite (see Testing section)
 ```
 
 - Package name: `llm-agent` (import name: `llm_agent`)
@@ -135,7 +184,7 @@ The key flow:
 
 ## Tools
 
-The model has twelve tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has thirteen tools. Read-only tools run without confirmation; mutating tools always require it.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
@@ -145,11 +194,12 @@ The model has twelve tools. Read-only tools run without confirmation; mutating t
 - **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Useful for understanding large files before diving in.
 - **`read_url`** — fetches a web page via curl, converts HTML to plain text via lynx/w3m (regex fallback). Returns title, final URL, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via DuckDuckGo HTML (no API key needed). Returns numbered results with titles, URLs, and snippets. Default 8 results.
+- **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status + output, or omit to list all tasks.
 
 **Mutating (always require confirmation):**
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
 - **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview.
-- **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches `DANGEROUS_PATTERNS`.
+- **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. Supports `run_in_background: true` to start long-running commands without blocking — returns a task ID for polling via `check_task`.
 
 **Interactive (always sequential):**
 - **`ask_user`** — asks the user a clarifying question. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
