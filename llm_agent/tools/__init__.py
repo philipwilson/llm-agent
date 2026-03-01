@@ -10,6 +10,7 @@ from llm_agent.tools import (
     write_file,
     edit_file,
     run_command,
+    check_task,
     web_search,
     delegate,
     ask_user,
@@ -32,6 +33,7 @@ _TOOL_TIMEOUTS = {
     "write_file": 30,
     "edit_file": 30,
     "run_command": None,    # uses its own COMMAND_TIMEOUT
+    "check_task": 30,
     "delegate": 300,        # subagents need time for multi-step work
     "ask_user": None,       # blocks on user input, no timeout
 }
@@ -49,6 +51,7 @@ _MODULES = [
     write_file,
     edit_file,
     run_command,
+    check_task,
     web_search,
     delegate,
     ask_user,

@@ -466,6 +466,9 @@ def main():
         if mcp_manager:
             mcp_manager.stop()
 
+    def _stop_background():
+        base.shell.stop_all()
+
     if args.c:
         try:
             success, turn_usage = session.run_question(args.c)
@@ -478,6 +481,7 @@ def main():
                     f"{format_tokens(turn_usage['output'])} out{cache_info}]"
                 ))
         finally:
+            _stop_background()
             _stop_mcp()
     else:
         use_tui = not args.no_tui
@@ -494,6 +498,7 @@ def main():
                 setup_readline()
                 agent_loop(session)
         finally:
+            _stop_background()
             _stop_mcp()
 
 

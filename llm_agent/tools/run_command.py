@@ -1,5 +1,7 @@
 """run_command tool: arbitrary shell command execution."""
 
+import re
+
 from llm_agent.formatting import bold, dim, yellow
 from llm_agent.tools.base import shell
 
@@ -21,6 +23,11 @@ SCHEMA = {
                 "type": "string",
                 "description": "A brief explanation of why you are running this command.",
             },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "If true, start the command in the background and return a task ID immediately. Use check_task to poll for results.",
+                "default": False,
+            },
         },
         "required": ["command"],
     },
@@ -28,19 +35,48 @@ SCHEMA = {
 
 NEEDS_CONFIRM = True
 
-DANGEROUS_PATTERNS = [
-    "rm ", "rm\t", "rmdir", "mkfs", "dd ", "dd\t",
-    "> /dev/", "mv ", "mv\t", "chmod", "chown",
-    "kill ", "killall", "pkill",
-    "shutdown", "reboot", "halt",
-    "curl|", "wget|",  # piping downloaded content to shell
-    "curl |", "wget |",
-]
+_SHELL_OPERATORS = re.compile(r"(&&|\|\||\||;)")
+
+DANGEROUS_COMMANDS = frozenset({
+    "rm", "rmdir", "mkfs", "dd", "mv", "chmod", "chown",
+    "kill", "killall", "pkill",
+    "shutdown", "reboot", "halt", "sudo",
+})
+
+DANGEROUS_PIPE_TARGETS = frozenset({
+    "sh", "bash", "zsh", "fish", "dash",
+    "python", "python3", "perl", "ruby", "node",
+})
+
+DANGEROUS_SUBSTRINGS = ("> /dev/",)
 
 
 def is_dangerous(command):
-    cmd = command.strip()
-    return any(pat in cmd for pat in DANGEROUS_PATTERNS)
+    """Check whether a (possibly compound) command is dangerous.
+
+    Splits on shell operators (&&, ||, |, ;) and checks each sub-command:
+    - First word matches a known destructive/privileged command
+    - Pipe target is a shell or interpreter (e.g. curl ... | sh)
+    - Sub-command contains a dangerous substring (e.g. > /dev/...)
+    """
+    tokens = _SHELL_OPERATORS.split(command.strip())
+    for i, token in enumerate(tokens):
+        if i % 2 == 1:  # skip operator tokens
+            continue
+        part = token.strip()
+        if not part:
+            continue
+        words = part.split()
+        if not words:
+            continue
+        cmd = words[0]
+        if cmd in DANGEROUS_COMMANDS:
+            return True
+        if i > 0 and tokens[i - 1] == "|" and cmd in DANGEROUS_PIPE_TARGETS:
+            return True
+        if any(s in part for s in DANGEROUS_SUBSTRINGS):
+            return True
+    return False
 
 
 def confirm(command, description=None, auto_approve=False):
@@ -61,6 +97,10 @@ def confirm(command, description=None, auto_approve=False):
 def handle(params, auto_approve=False):
     command = params.get("command", "")
     description = params.get("description")
+    background = params.get("run_in_background", False)
     if confirm(command, description, auto_approve):
+        if background:
+            task_id = shell.start_background(command)
+            return f"Background task started: {task_id}\nUse check_task to poll for results."
         return shell.run(command)
     return "(user declined to run this command)"
