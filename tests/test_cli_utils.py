@@ -8,6 +8,7 @@ from llm_agent.cli import (
     estimate_tokens,
     _is_tool_result_message,
     is_gemini_model,
+    is_ollama_model,
     is_openai_model,
     parse_attachments,
     trim_conversation,
@@ -83,11 +84,20 @@ class TestModelDetection:
         assert not is_gemini_model(model)
 
     @pytest.mark.parametrize("model", [
+        "ollama:qwen3-coder-next:q8_0", "ollama:mistral", "ollama:llama3.2",
+    ])
+    def test_ollama_models(self, model):
+        assert is_ollama_model(model)
+        assert not is_openai_model(model)
+        assert not is_gemini_model(model)
+
+    @pytest.mark.parametrize("model", [
         "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
     ])
     def test_anthropic_models(self, model):
         assert not is_gemini_model(model)
         assert not is_openai_model(model)
+        assert not is_ollama_model(model)
 
 
 class TestParseAttachments:

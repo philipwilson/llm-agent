@@ -84,7 +84,7 @@ class Session:
         """
         from llm_agent.cli import (
             parse_attachments, trim_conversation, is_gemini_model,
-            is_openai_model, MAX_STEPS, MAX_STEPS_GEMINI,
+            is_openai_model, is_ollama_model, MAX_STEPS, MAX_STEPS_GEMINI,
         )
         from llm_agent.agent import agent_turn
 
@@ -103,7 +103,10 @@ class Session:
         messages = list(self.conversation) + [{"role": "user", "content": content}]
         steps = 0
 
-        if is_openai_model(self.model):
+        if is_ollama_model(self.model):
+            from llm_agent.ollama_agent import ollama_agent_turn
+            turn_fn = ollama_agent_turn
+        elif is_openai_model(self.model):
             from llm_agent.openai_agent import openai_agent_turn
             turn_fn = openai_agent_turn
         elif is_gemini_model(self.model):
@@ -213,8 +216,8 @@ class Session:
     def _handle_model(self, text):
         """Handle /model command. Returns list of status messages."""
         from llm_agent.cli import (
-            MODELS, is_gemini_model, is_openai_model, make_client,
-            DEFAULT_THINKING,
+            MODELS, is_gemini_model, is_openai_model, is_ollama_model,
+            make_client, DEFAULT_THINKING,
         )
 
         parts = text.strip().split()
@@ -223,21 +226,33 @@ class Session:
         if len(parts) == 1:
             messages.append(f"(model: {self.model})")
             messages.append(f"  available: {', '.join(MODELS.keys())}")
+            messages.append(f"  or: ollama:<model-name> for local models")
             return messages
 
-        if parts[1] not in MODELS:
+        # Resolve alias, pass through ollama:* names, or reject unknown
+        arg = parts[1]
+        if arg in MODELS:
+            new_model = MODELS[arg]
+        elif is_ollama_model(arg):
+            new_model = arg
+        else:
             messages.append(
-                f"(unknown model '{parts[1]}', available: {', '.join(MODELS.keys())})"
+                f"(unknown model '{arg}', available: {', '.join(MODELS.keys())})"
             )
+            messages.append(f"  or: ollama:<model-name> for local models")
             return messages
 
-        new_model = MODELS[parts[1]]
-        old_provider = ("gemini" if is_gemini_model(self.model)
-                        else "openai" if is_openai_model(self.model)
-                        else "anthropic")
-        new_provider = ("gemini" if is_gemini_model(new_model)
-                        else "openai" if is_openai_model(new_model)
-                        else "anthropic")
+        def _provider(m):
+            if is_ollama_model(m):
+                return "ollama"
+            if is_gemini_model(m):
+                return "gemini"
+            if is_openai_model(m):
+                return "openai"
+            return "anthropic"
+
+        old_provider = _provider(self.model)
+        new_provider = _provider(new_model)
 
         if new_provider != old_provider:
             self.client = make_client(new_model)

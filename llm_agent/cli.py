@@ -2,7 +2,7 @@
 """
 Agent loop that uses LLMs to answer questions by exploring the filesystem
 and running Unix commands. Supports Anthropic Claude (direct API and
-Vertex AI), Google Gemini, and OpenAI models.
+Vertex AI), Google Gemini, OpenAI, and local Ollama models.
 """
 
 import argparse
@@ -14,6 +14,7 @@ import readline
 import sys
 
 import anthropic
+import httpx
 
 from llm_agent import VERSION
 from llm_agent.display import get_display
@@ -32,6 +33,8 @@ MODELS = {
     "gpt-5.2": "gpt-5.2",
     "o3": "o3",
     "o4-mini": "o4-mini",
+    "qwen3": "ollama:qwen3-coder-next:q8_0",
+    "qwen3-cloud": "ollama:qwen3-coder:480b-cloud",
 }
 DEFAULT_MODEL = "sonnet"
 DEFAULT_THINKING = {
@@ -76,6 +79,8 @@ CONTEXT_WINDOWS = {
     "o3": 200_000,
     "o4-mini": 200_000,
 }
+# Default context window for Ollama models (override with OLLAMA_CONTEXT_WINDOW env var)
+OLLAMA_DEFAULT_CONTEXT = 32_768
 CONTEXT_BUDGET = 0.80
 
 
@@ -118,7 +123,12 @@ def trim_conversation(conversation, last_input_tokens, model, client=None):
     by all subsequent messages until the next real user message.  This ensures
     we never split a tool_use/tool_result pair.
     """
-    budget = int(CONTEXT_WINDOWS.get(model, 200_000) * CONTEXT_BUDGET)
+    if is_ollama_model(model):
+        default_ctx = int(os.environ.get("OLLAMA_CONTEXT_WINDOW", OLLAMA_DEFAULT_CONTEXT))
+        window = CONTEXT_WINDOWS.get(model, default_ctx)
+    else:
+        window = CONTEXT_WINDOWS.get(model, 200_000)
+    budget = int(window * CONTEXT_BUDGET)
     if last_input_tokens <= budget:
         return conversation
     excess = last_input_tokens - budget
@@ -181,7 +191,14 @@ def _summarize_dropped(client, model, messages):
     )
 
     try:
-        if is_openai_model(model):
+        if is_ollama_model(model):
+            from llm_agent.ollama_agent import ollama_agent_turn
+            msgs, _ = ollama_agent_turn(
+                client, model,
+                [{"role": "user", "content": prompt}],
+                auto_approve=True, tools=None, tool_registry={},
+            )
+        elif is_openai_model(model):
             from llm_agent.openai_agent import openai_agent_turn
             msgs, _ = openai_agent_turn(
                 client, model,
@@ -226,6 +243,10 @@ def is_gemini_model(model):
 
 def is_openai_model(model):
     return model in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini")
+
+
+def is_ollama_model(model):
+    return model.startswith("ollama:")
 
 
 def parse_attachments(text):
@@ -298,11 +319,21 @@ def setup_readline():
 def make_client(model):
     """Create an API client for the given model.
 
+    For Ollama models, uses the openai SDK pointed at the local Ollama server.
     For OpenAI models, uses the openai SDK with OPENAI_API_KEY.
     For Gemini models, uses the google-genai SDK with GOOGLE_API_KEY.
     For Anthropic models, uses the direct API if ANTHROPIC_API_KEY is set,
     otherwise falls back to Vertex AI (requires ANTHROPIC_VERTEX_PROJECT_ID).
     """
+    if is_ollama_model(model):
+        try:
+            import openai
+        except ImportError:
+            get_display().error("Install openai: pip install 'llm-agent[ollama]'")
+            sys.exit(1)
+        base_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434") + "/v1"
+        return openai.OpenAI(api_key="ollama", base_url=base_url)
+
     if is_openai_model(model):
         try:
             import openai
@@ -330,13 +361,18 @@ def make_client(model):
             sys.exit(1)
         return genai.Client(api_key=api_key)
 
+    # 10s connect, 10min read — prevents indefinite hangs on stalled streams
+    api_timeout = httpx.Timeout(600, connect=10)
+
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return anthropic.Anthropic()
+        return anthropic.Anthropic(timeout=api_timeout)
 
     project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
     if project_id:
         region = os.environ.get("CLOUD_ML_REGION", "us-east5")
-        return anthropic.AnthropicVertex(region=region, project_id=project_id)
+        return anthropic.AnthropicVertex(
+            region=region, project_id=project_id, timeout=api_timeout,
+        )
 
     get_display().error("Set ANTHROPIC_API_KEY or ANTHROPIC_VERTEX_PROJECT_ID.")
     sys.exit(1)
@@ -386,7 +422,11 @@ def agent_loop(session):
             context_info = ""
             last_input = turn_usage.get("last_input", 0)
             if last_input > 0:
-                window = CONTEXT_WINDOWS.get(session.model, 200_000)
+                if is_ollama_model(session.model):
+                    default_ctx = int(os.environ.get("OLLAMA_CONTEXT_WINDOW", OLLAMA_DEFAULT_CONTEXT))
+                    window = CONTEXT_WINDOWS.get(session.model, default_ctx)
+                else:
+                    window = CONTEXT_WINDOWS.get(session.model, 200_000)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_info = f" | context: {remaining_pct:.0f}% remaining"
             display.status(
@@ -412,9 +452,10 @@ def main():
     )
     parser.add_argument(
         "-m", "--model",
-        choices=list(MODELS.keys()),
         default=DEFAULT_MODEL,
-        help=f"Model to use (default: {DEFAULT_MODEL})",
+        help=f"Model to use (default: {DEFAULT_MODEL}). "
+             f"Aliases: {', '.join(MODELS.keys())}. "
+             f"For Ollama: ollama:<model-name>",
     )
     parser.add_argument(
         "-y", "--yolo",
@@ -447,7 +488,17 @@ def main():
     args = parser.parse_args()
 
     base.COMMAND_TIMEOUT = args.timeout
-    model = MODELS[args.model]
+    model = MODELS.get(args.model)
+    if model is None:
+        if is_ollama_model(args.model):
+            model = args.model
+        else:
+            get_display().error(
+                f"Unknown model '{args.model}'. "
+                f"Known aliases: {', '.join(MODELS.keys())}. "
+                f"For Ollama: ollama:<model-name>"
+            )
+            sys.exit(1)
     thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
     client = make_client(model)
 

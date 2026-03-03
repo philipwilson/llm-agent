@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Python agent loop that uses LLMs to answer user questions by exploring the filesystem and running Unix commands. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
+A Python agent loop that uses LLMs to answer user questions by exploring the filesystem and running Unix commands. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, OpenAI, and local Ollama models.
 
 ## Installation
 
@@ -13,6 +13,7 @@ pip install -e .              # editable install
 pip install -e '.[vertex]'    # with Vertex AI support
 pip install -e '.[gemini]'    # with Gemini support
 pip install -e '.[openai]'    # with OpenAI support
+pip install -e '.[ollama]'    # with Ollama support (local models)
 pip install -e '.[tui]'       # with Textual TUI
 pip install -e '.[mcp]'       # with MCP client support
 pip install -e '.[all]'       # all providers + TUI + MCP
@@ -69,6 +70,7 @@ tests/
         test_agent_turn.py     — fake Anthropic streaming, tool dispatch, multi-turn
         test_trim_conversation.py — trimming with mock summarization
         test_subagent.py       — tool filtering, model override, streaming suppression
+        test_ollama.py         — Ollama agent turn, model name stripping, tool dispatch
         test_mcp_registration.py — register/unregister, build_tool_set, format helpers
 ```
 
@@ -96,6 +98,10 @@ export GOOGLE_API_KEY="your-google-api-key"
 # Option 4: OpenAI
 export OPENAI_API_KEY="your-openai-api-key"
 
+# Option 5: Ollama (local models, no API key needed)
+# Just have Ollama running: ollama serve
+export OLLAMA_HOST="http://localhost:11434"  # optional, this is the default
+
 # Run with default model (sonnet)
 llm-agent
 
@@ -110,6 +116,10 @@ llm-agent -m gpt-4o-mini
 llm-agent -m gpt-5.2
 llm-agent -m o3
 llm-agent -m o4-mini
+llm-agent -m qwen3                                # Ollama: qwen3-coder-next:q8_0
+llm-agent -m qwen3-cloud                          # Ollama: qwen3-coder:480b-cloud
+llm-agent -m ollama:llama3.2                      # Ollama: any model by name
+llm-agent -m ollama:deepseek-coder-v2:16b-lite-instruct-q4_0  # Ollama: with quantization tag
 
 # Auto-approve safe commands
 llm-agent -y
@@ -142,6 +152,7 @@ llm_agent/
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion
+    ollama_agent.py     — ollama_agent_turn, Ollama via OpenAI-compat API
     agents.py           — subagent definitions, custom agent loading, run_subagent
     context.py          — project context detection (project type, git, .agent.md)
     skills.py           — skill parsing, discovery, rendering (/slash commands)
@@ -181,6 +192,7 @@ The agent is split across several modules:
 - **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
 - **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
 - **`openai_agent.py`** — OpenAI streaming, tool schema/message format conversion
+- **`ollama_agent.py`** — Ollama streaming via OpenAI-compatible API, usage estimation fallback
 - **`mcp_client.py`** — MCP client manager: server lifecycle, tool discovery, async-to-sync bridge
 - **`display.py`** — Display protocol abstracting all user-facing output (print/input)
 - **`tui.py`** — Textual TUI application, `TUIDisplay`, `ReadlineInput`, light theme
@@ -440,6 +452,8 @@ Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `g
 
 OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `gpt-5.2`, `o3`, `o4-mini`.
 
+Ollama models use `ollama:` prefix: `ollama:qwen3-coder-next:q8_0`, `ollama:mistral`, etc. Aliases: `qwen3` → `ollama:qwen3-coder-next:q8_0`, `qwen3-cloud` → `ollama:qwen3-coder:480b-cloud`.
+
 ## Provider Architecture
 
 Messages are stored internally in Anthropic format. Provider-specific modules convert at the API boundary:
@@ -455,5 +469,12 @@ Messages are stored internally in Anthropic format. Provider-specific modules co
 - `tool_result` blocks → separate `role: "tool"` messages with `tool_call_id`
 - `input_schema` → `parameters` in function tool format
 - Reasoning models (`gpt-5.2`, `o3`, `o4-mini`) use `max_completion_tokens` instead of `max_tokens`
+
+**Ollama** (`ollama_agent.py`):
+- Reuses OpenAI message/tool conversion functions (Ollama exposes an OpenAI-compatible API)
+- Client created with `openai.OpenAI(api_key="ollama", base_url="http://localhost:11434/v1")`
+- `ollama:` prefix stripped before sending model name to the API
+- Falls back to token estimation when Ollama doesn't report usage stats
+- Helpful error messages when Ollama server is unreachable
 
 Provider SDKs (`google-genai`, `openai`) are lazy-imported only when the corresponding model is selected. Switching providers via `/model` recreates the client and clears the conversation.
