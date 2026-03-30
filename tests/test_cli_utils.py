@@ -84,7 +84,7 @@ class TestModelDetection:
         assert not is_gemini_model(model)
 
     @pytest.mark.parametrize("model", [
-        "ollama:qwen3.5:122b", "ollama:mistral", "ollama:llama3.2",
+        "ollama:qwen3.5:122b", "ollama:mistral", "ollama:llama3.2", "ollama:nemotron-3-nano:latest",
     ])
     def test_ollama_models(self, model):
         assert is_ollama_model(model)

@@ -35,6 +35,7 @@ MODELS = {
     "o4-mini": "o4-mini",
     "qwen3": "ollama:qwen3.5:122b",
     "qwen3-cloud": "ollama:qwen3.5:cloud",
+    "nemotron-nano": "ollama:nemotron-3-nano:latest",
 }
 DEFAULT_MODEL = "sonnet"
 DEFAULT_THINKING = {
