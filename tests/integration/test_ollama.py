@@ -81,7 +81,7 @@ class FakeClient:
 
 class TestOllamaModelName:
     def test_strip_prefix(self):
-        assert _ollama_model_name("ollama:qwen3-coder-next:q8_0") == "qwen3-coder-next:q8_0"
+        assert _ollama_model_name("ollama:qwen3.5:122b") == "qwen3.5:122b"
 
     def test_no_prefix(self):
         assert _ollama_model_name("mistral") == "mistral"
@@ -103,7 +103,7 @@ class TestOllamaTextOnly:
         usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
 
         result_msgs, done = ollama_agent_turn(
-            client, "ollama:qwen3-coder-next:q8_0", messages, auto_approve=True,
+            client, "ollama:qwen3.5:122b", messages, auto_approve=True,
             usage_totals=usage, tools=None, tool_registry={},
         )
 
@@ -164,7 +164,7 @@ class TestOllamaWithTools:
         messages = [{"role": "user", "content": "use tool"}]
 
         result_msgs, done = ollama_agent_turn(
-            client, "ollama:qwen3-coder-next:q8_0", messages, auto_approve=True,
+            client, "ollama:qwen3.5:122b", messages, auto_approve=True,
             usage_totals=None, tools=tools, tool_registry=registry,
         )
 
@@ -194,14 +194,14 @@ class TestOllamaWithTools:
 
         # Turn 1: tool call
         messages, done = ollama_agent_turn(
-            client, "ollama:qwen3-coder-next:q8_0", messages, auto_approve=True,
+            client, "ollama:qwen3.5:122b", messages, auto_approve=True,
             tools=tools, tool_registry=registry,
         )
         assert done is False
 
         # Turn 2: final text
         messages, done = ollama_agent_turn(
-            client, "ollama:qwen3-coder-next:q8_0", messages, auto_approve=True,
+            client, "ollama:qwen3.5:122b", messages, auto_approve=True,
             tools=tools, tool_registry=registry,
         )
         assert done is True

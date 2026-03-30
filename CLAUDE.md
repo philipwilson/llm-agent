@@ -116,8 +116,8 @@ llm-agent -m gpt-4o-mini
 llm-agent -m gpt-5.2
 llm-agent -m o3
 llm-agent -m o4-mini
-llm-agent -m qwen3                                # Ollama: qwen3-coder-next:q8_0
-llm-agent -m qwen3-cloud                          # Ollama: qwen3-coder:480b-cloud
+llm-agent -m qwen3                                # Ollama: qwen3.5:122b
+llm-agent -m qwen3-cloud                          # Ollama: qwen3.5:cloud
 llm-agent -m ollama:llama3.2                      # Ollama: any model by name
 llm-agent -m ollama:deepseek-coder-v2:16b-lite-instruct-q4_0  # Ollama: with quantization tag
 
@@ -452,7 +452,7 @@ Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `g
 
 OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `gpt-5.2`, `o3`, `o4-mini`.
 
-Ollama models use `ollama:` prefix: `ollama:qwen3-coder-next:q8_0`, `ollama:mistral`, etc. Aliases: `qwen3` → `ollama:qwen3-coder-next:q8_0`, `qwen3-cloud` → `ollama:qwen3-coder:480b-cloud`.
+Ollama models use `ollama:` prefix: `ollama:qwen3.5:122b`, `ollama:mistral`, etc. Aliases: `qwen3` → `ollama:qwen3.5:122b`, `qwen3-cloud` → `ollama:qwen3.5:cloud`.
 
 ## Provider Architecture
 

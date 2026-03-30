@@ -33,8 +33,8 @@ MODELS = {
     "gpt-5.2": "gpt-5.2",
     "o3": "o3",
     "o4-mini": "o4-mini",
-    "qwen3": "ollama:qwen3-coder-next:q8_0",
-    "qwen3-cloud": "ollama:qwen3-coder:480b-cloud",
+    "qwen3": "ollama:qwen3.5:122b",
+    "qwen3-cloud": "ollama:qwen3.5:cloud",
 }
 DEFAULT_MODEL = "sonnet"
 DEFAULT_THINKING = {
