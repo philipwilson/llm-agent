@@ -180,6 +180,7 @@ Branch: !`git branch --show-current`
 | `o4-mini` | o4-mini | OpenAI |
 | `qwen3` | qwen3.5:122b | Ollama |
 | `qwen3-cloud` | qwen3.5:cloud | Ollama |
+| `qwen3-coder` | qwen3.5:35b-a3b-coding-nvfp4 | Ollama |
 | `nemotron-nano` | nemotron-3-nano:latest | Ollama |
 | `ollama:*` | any local model | Ollama |
 
