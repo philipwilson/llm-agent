@@ -543,7 +543,7 @@ class AgentApp(App):
     CSS = APP_CSS
     TITLE = "llm-agent"
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+c", "quit_or_copy", "Quit / Copy", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", show=False),
     ]
 
@@ -616,6 +616,17 @@ class AgentApp(App):
                 tty.flush()
         except OSError:
             pass
+
+    def action_quit_or_copy(self):
+        """Ctrl+C: copy selected text if any, otherwise quit."""
+        selected = self.screen.get_selected_text()
+        if selected:
+            self.copy_to_clipboard(selected)
+            self.screen.clear_selection()
+            log = self.query_one("#conversation", RichLog)
+            log.write(Text.from_ansi(dim("(copied to clipboard)")))
+        else:
+            self.exit()
 
     def _update_status_bar(self, turn_usage=None):
         # Model + mode
