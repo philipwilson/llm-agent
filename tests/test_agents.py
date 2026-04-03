@@ -17,12 +17,16 @@ class TestBuiltinAgents:
         assert "write_file" not in explore["tools"]
         assert "run_command" not in explore["tools"]
         assert "read_file" in explore["tools"]
+        assert "read_many_files" in explore["tools"]
+        assert "file_outline" in explore["tools"]
 
     def test_code_agent(self):
         code = BUILTIN_AGENTS["code"]
         assert code["name"] == "code"
         assert code["model"] is None  # inherits parent
         assert "read_file" in code["tools"]
+        assert "read_many_files" in code["tools"]
+        assert "file_outline" in code["tools"]
         assert "write_file" in code["tools"]
         assert "apply_patch" in code["tools"]
         assert "run_command" in code["tools"]

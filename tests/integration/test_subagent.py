@@ -120,7 +120,9 @@ class TestRunSubagent:
         tool_names = {t["name"] for t in captured["tools"]}
         # Explore should have read-only tools
         assert "read_file" in tool_names
+        assert "read_many_files" in tool_names
         assert "search_files" in tool_names
+        assert "file_outline" in tool_names
         # But not write/mutate tools
         assert "write_file" not in tool_names
         assert "edit_file" not in tool_names
@@ -146,6 +148,8 @@ class TestRunSubagent:
 
         tool_names = {t["name"] for t in captured["tools"]}
         assert "read_file" in tool_names
+        assert "read_many_files" in tool_names
+        assert "file_outline" in tool_names
         assert "write_file" in tool_names
         assert "edit_file" in tool_names
         assert "apply_patch" in tool_names

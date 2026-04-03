@@ -102,3 +102,35 @@ class TestListDirectory:
         # Entries should be alphabetically sorted
         entries = [l.strip().split()[0] for l in lines[1:] if l.strip()]
         assert entries == sorted(entries)
+
+    def test_depth_lists_nested_entries(self, tmp_path):
+        nested = tmp_path / "subdir"
+        nested.mkdir()
+        (nested / "deep.txt").write_text("hello")
+        shell.cwd = str(tmp_path)
+
+        result = handle({"path": ".", "depth": 2})
+
+        assert "subdir/" in result
+        assert "subdir/deep.txt" in result
+
+    def test_pagination(self, tmp_path):
+        for name in ("a.txt", "b.txt", "c.txt"):
+            (tmp_path / name).write_text(name)
+        shell.cwd = str(tmp_path)
+
+        result = handle({"path": ".", "offset": 2, "limit": 1})
+
+        assert "showing entries 2-2" in result
+        assert "truncated; use offset=3 to continue" in result
+
+    def test_invalid_depth(self, tmp_path):
+        shell.cwd = str(tmp_path)
+        result = handle({"path": ".", "depth": 0})
+        assert "depth must be >= 1" in result
+
+    def test_offset_beyond_directory_length(self, tmp_path):
+        (tmp_path / "a.txt").write_text("a")
+        shell.cwd = str(tmp_path)
+        result = handle({"path": ".", "offset": 5})
+        assert "exceeds directory length" in result

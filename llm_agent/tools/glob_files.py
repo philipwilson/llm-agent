@@ -2,6 +2,7 @@
 
 import glob
 import os
+from pathlib import Path
 
 from llm_agent.formatting import bold, cyan
 from llm_agent.tools.base import _resolve
@@ -24,6 +25,15 @@ SCHEMA = {
                 "type": "string",
                 "description": "Directory to search in (default: current directory).",
             },
+            "exclude": {
+                "type": "array",
+                "description": "Glob patterns to exclude, relative to the search directory.",
+                "items": {"type": "string"},
+            },
+            "hidden": {
+                "type": "boolean",
+                "description": "Include hidden files and hidden-path matches (default: false).",
+            },
             "max_results": {
                 "type": "integer",
                 "description": "Maximum number of files to return (default: 200).",
@@ -43,18 +53,35 @@ def log(params):
 LOG = log
 
 
+def _is_hidden_path(rel_path):
+    parts = rel_path.split(os.sep)
+    return any(part.startswith(".") for part in parts if part)
+
+
 def handle(params):
     pattern = params.get("pattern", "")
     root = _resolve(params.get("path", "."))
+    exclude_patterns = params.get("exclude") or []
+    hidden = params.get("hidden", False)
     max_results = params.get("max_results", 200)
 
     if not os.path.isdir(root):
         return f"(error: directory not found: {root})"
+    if max_results < 1:
+        return f"(error: max_results must be >= 1, got {max_results})"
 
-    matches = glob.glob(pattern, root_dir=root, recursive=True)
-
-    # Filter to files only (exclude directories)
-    files = sorted(f for f in matches if os.path.isfile(os.path.join(root, f)))
+    files = []
+    root_path = Path(root)
+    matches = sorted(root_path.glob(pattern))
+    for match in matches:
+        if not match.is_file():
+            continue
+        normalized = os.path.normpath(str(match.relative_to(root_path)))
+        if not hidden and _is_hidden_path(normalized):
+            continue
+        if any(glob.fnmatch.fnmatch(normalized, exclude) for exclude in exclude_patterns):
+            continue
+        files.append(normalized)
 
     total = len(files)
     header = f"[{total} files matching {pattern} in {root}]"
@@ -69,5 +96,8 @@ def handle(params):
 
     result = header + "\n" + "\n".join(files)
     if truncated:
-        result += f"\n... ({total - max_results} more files not shown)"
+        result += (
+            f"\n... ({total - max_results} more files not shown; "
+            f"narrow the pattern/exclude filters or increase max_results from {max_results})"
+        )
     return result

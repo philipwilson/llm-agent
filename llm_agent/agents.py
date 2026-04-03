@@ -15,8 +15,8 @@ BUILTIN_AGENTS = {
         "description": "Fast read-only research agent (uses haiku)",
         "model": "haiku",
         "tools": [
-            "read_file", "list_directory", "search_files",
-            "glob_files", "read_url", "web_search",
+            "read_file", "read_many_files", "list_directory", "search_files",
+            "glob_files", "file_outline", "read_url", "web_search",
         ],
         "system_prompt": (
             "You are a research assistant. Your job is to explore the filesystem, "
@@ -30,7 +30,8 @@ BUILTIN_AGENTS = {
         "description": "Full-capability coding agent (inherits parent model)",
         "model": None,  # inherit from parent
         "tools": [
-            "read_file", "list_directory", "search_files", "glob_files",
+            "read_file", "read_many_files", "list_directory", "search_files", "glob_files",
+            "file_outline",
             "read_url", "web_search", "write_file", "edit_file", "apply_patch",
             "run_command", "check_task", "start_session", "write_stdin",
         ],
@@ -154,7 +155,7 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
             "context": web_search.build_context(sub_client, sub_model),
         }
     file_context = {"file_observations": FileObservationStore()}
-    for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+    for tool_name in ("read_file", "read_many_files", "edit_file", "write_file", "apply_patch"):
         if tool_name in tool_registry:
             tool_registry[tool_name] = {
                 **tool_registry[tool_name],

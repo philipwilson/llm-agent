@@ -48,6 +48,28 @@ class TestReadFile:
         shell.cwd = str(tmp_path)
         result = handle({"path": "test.txt", "offset": 3, "limit": 3})
         assert "showing lines 3-5" in result
+        assert "use offset=6 to continue" in result
+
+    def test_invalid_offset(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("line 1\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "test.txt", "offset": 0})
+        assert "offset must be >= 1" in result
+
+    def test_offset_beyond_file_length(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("line 1\nline 2\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "test.txt", "offset": 5})
+        assert "exceeds file length" in result
+
+    def test_invalid_limit(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("line 1\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "test.txt", "limit": 0})
+        assert "limit must be >= 1" in result
 
     def test_file_not_found(self, tmp_path):
         shell.cwd = str(tmp_path)

@@ -83,13 +83,16 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has sixteen tools it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
+The agent has eighteen tools it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
 
 **Read-only:**
-- **read_file** -- read file contents with line numbers, optional offset/limit
-- **list_directory** -- list directory entries with types and sizes
-- **search_files** -- regex search over file contents (ripgrep, falls back to grep)
-- **glob_files** -- find files by glob pattern recursively (`**/*.py`, etc.)
+- **read_file** -- read file contents with line numbers, optional offset/limit, and continuation guidance when truncated
+- **read_many_files** -- read a small set of files in one call using explicit paths and/or include/exclude glob patterns
+- **list_directory** -- list directory entries with types and sizes, optional hidden files, depth, and pagination
+- **search_files** -- regex search over file contents (ripgrep, falls back to grep) with file-only mode and context controls
+- **glob_files** -- find files by glob pattern recursively (`**/*.py`, etc.), with optional exclude patterns and hidden-file control
+- **file_outline** -- show a file's symbol outline, with optional kind filtering and symbol caps
+- **lsp_navigate** -- semantic navigation via a local language server (`document_symbols`, `definition`, `references`, `hover`) when a supported server is installed
 - **read_url** -- fetch a URL and return cleaned markdown/text content
 - **web_search** -- search the web via provider-native search when available, with DuckDuckGo fallback
 - **check_task** -- inspect background tasks started by `run_command`, including recent output
@@ -108,7 +111,7 @@ The agent has sixteen tools it can use autonomously. Read-only tools run without
 - **ask_user** -- ask the user a clarifying question (free-text or multiple-choice); always prompts, even in yolo mode
 
 **Delegation (no confirmation):**
-- **delegate** -- spawn a subagent with its own conversation and filtered tool set (built-in: `explore` for read-only research, `code` for full access)
+- **delegate** -- spawn a subagent with its own conversation and filtered tool set (built-in: `explore` for read-only research, `code` for full access, both including `file_outline` and `lsp_navigate`)
 
 In yolo mode (`-y`), `run_command` auto-approves unless the command matches known dangerous patterns (e.g. `rm -rf`, `mkfs`, `dd`). Background commands return a task ID immediately; use `check_task` to inspect status and recent output. PTY session starts and non-empty `write_stdin` calls still prompt explicitly.
 

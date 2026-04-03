@@ -2,10 +2,12 @@
 
 from llm_agent.tools import (
     read_file,
+    read_many_files,
     list_directory,
     search_files,
     glob_files,
     file_outline,
+    lsp_navigate,
     read_url,
     write_file,
     edit_file,
@@ -27,10 +29,12 @@ DEFAULT_TOOL_TIMEOUT = 120
 # long timeout since subagents run multi-step loops.
 _TOOL_TIMEOUTS = {
     "read_file": 30,
+    "read_many_files": 30,
     "list_directory": 30,
     "search_files": 30,
     "glob_files": 30,
     "file_outline": 30,
+    "lsp_navigate": 30,
     "read_url": 30,         # has internal 15s timeout
     "web_search": 30,       # has internal 15s timeout
     "write_file": 30,
@@ -49,10 +53,12 @@ MCP_TOOL_TIMEOUT = 60
 
 _MODULES = [
     read_file,
+    read_many_files,
     list_directory,
     search_files,
     glob_files,
     file_outline,
+    lsp_navigate,
     read_url,
     write_file,
     edit_file,

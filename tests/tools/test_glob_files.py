@@ -72,3 +72,30 @@ class TestGlobFiles:
         result = handle({"pattern": "*.py"})
         lines = result.strip().splitlines()[1:]  # skip header
         assert lines == sorted(lines)
+
+    def test_exclude_filter(self, tmp_path):
+        (tmp_path / "a.py").write_text("")
+        (tmp_path / "b_test.py").write_text("")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "*.py", "exclude": ["*_test.py"]})
+        assert "a.py" in result
+        assert "b_test.py" not in result
+
+    def test_hidden_files_excluded_by_default(self, tmp_path):
+        hidden = tmp_path / ".hidden.py"
+        hidden.write_text("")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "*.py"})
+        assert ".hidden.py" not in result
+
+    def test_hidden_files_can_be_included(self, tmp_path):
+        hidden = tmp_path / ".hidden.py"
+        hidden.write_text("")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "*.py", "hidden": True})
+        assert ".hidden.py" in result
+
+    def test_invalid_max_results(self, tmp_path):
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "*.py", "max_results": 0})
+        assert "max_results must be >= 1" in result

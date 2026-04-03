@@ -45,6 +45,34 @@ class TestSearchFiles:
         result = handle({"pattern": "match", "path": ".", "max_results": 5})
         assert "capped at 5" in result
 
+    def test_mode_files_lists_matching_files_only(self, tmp_path):
+        (tmp_path / "a.txt").write_text("pattern here\n")
+        (tmp_path / "b.txt").write_text("no match\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "pattern", "path": ".", "mode": "files"})
+        assert "a.txt" in result
+        assert "pattern here" not in result
+
+    def test_context_lines_include_surrounding_text(self, tmp_path):
+        (tmp_path / "file.txt").write_text("one\ntwo match\nthree\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "match", "path": ".", "context_lines": 1})
+        assert "one" in result
+        assert "three" in result
+
+    def test_max_matches_per_file_limits_each_file(self, tmp_path):
+        (tmp_path / "many.txt").write_text("match 1\nmatch 2\nmatch 3\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "match", "path": ".", "max_matches_per_file": 1})
+        assert "match 1" in result
+        assert "match 2" not in result
+
+    def test_invalid_mode(self, tmp_path):
+        (tmp_path / "file.txt").write_text("hello\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"pattern": "hello", "mode": "weird"})
+        assert "unsupported mode" in result
+
     def test_default_path(self, tmp_path):
         (tmp_path / "file.txt").write_text("findme\n")
         shell.cwd = str(tmp_path)

@@ -225,3 +225,40 @@ class TestHandle:
         result = handle({"path": "types.ts"})
         assert "interface User" in result
         assert "type ID" in result
+
+    def test_kind_filter(self, tmp_path):
+        f = tmp_path / "example.py"
+        f.write_text(
+            "class MyClass:\n"
+            "    def method(self):\n"
+            "        pass\n"
+            "\n"
+            "def standalone():\n"
+            "    pass\n"
+        )
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "example.py", "kinds": ["class"]})
+        assert "class MyClass" in result
+        assert "def method" not in result
+        assert "def standalone" not in result
+
+    def test_max_symbols_truncates(self, tmp_path):
+        f = tmp_path / "many.py"
+        f.write_text(
+            "def one():\n    pass\n"
+            "def two():\n    pass\n"
+            "def three():\n    pass\n"
+        )
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "many.py", "max_symbols": 2})
+        assert "def one" in result
+        assert "def two" in result
+        assert "def three" not in result
+        assert "increase max_symbols from 2" in result
+
+    def test_invalid_kind(self, tmp_path):
+        f = tmp_path / "example.py"
+        f.write_text("def hello():\n    pass\n")
+        shell.cwd = str(tmp_path)
+        result = handle({"path": "example.py", "kinds": ["weird"]})
+        assert "unsupported symbol kinds" in result

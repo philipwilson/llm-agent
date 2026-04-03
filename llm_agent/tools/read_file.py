@@ -5,6 +5,8 @@ import os
 from llm_agent.formatting import bold, cyan
 from llm_agent.tools.base import _resolve, read_text_file
 
+DEFAULT_READ_LIMIT = 200
+
 SCHEMA = {
     "name": "read_file",
     "description": (
@@ -40,30 +42,66 @@ def log(params):
 LOG = log
 
 
+def _validate_window(offset, limit):
+    if offset is None:
+        offset = 1
+    if limit is None:
+        limit = DEFAULT_READ_LIMIT
+    if offset < 1:
+        raise ValueError(f"offset must be >= 1, got {offset}")
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1, got {limit}")
+    return offset, limit
+
+
+def format_file_excerpt(path, file_info, offset=1, limit=DEFAULT_READ_LIMIT):
+    offset, limit = _validate_window(offset, limit)
+
+    content = file_info["content"]
+    size = file_info["size"]
+    lines = content.splitlines()
+    total = len(lines)
+
+    if offset > max(total, 1):
+        raise ValueError(
+            f"offset ({offset}) exceeds file length ({total} lines); "
+            f"use an offset between 1 and {max(total, 1)}"
+        )
+
+    selected = lines[offset - 1 : offset - 1 + limit]
+    end_line = min(offset - 1 + limit, total)
+
+    header = f"[{path}: {total} lines, {size} bytes]"
+    if total and (offset > 1 or end_line < total):
+        header += f" (showing lines {offset}-{end_line})"
+
+    output_lines = [header]
+    output_lines.extend(f"{i:6}\t{line}" for i, line in enumerate(selected, start=offset))
+
+    if end_line < total:
+        output_lines.append(f"(truncated; use offset={end_line + 1} to continue)")
+
+    return "\n".join(output_lines)
+
+
 def handle(params, context=None):
     path = _resolve(params.get("path", ""))
-    offset = max(params.get("offset", 1), 1)
-    limit = params.get("limit", 200)
 
     try:
         file_info = read_text_file(path)
-        content = file_info["content"]
         stat_result = file_info["stat"]
-        size = file_info["size"]
         if context:
             observations = context.get("file_observations")
             if observations is not None:
                 observations.record_read(path, stat_result)
-        lines = content.splitlines()
-        total = len(lines)
-        selected = lines[offset - 1 : offset - 1 + limit]
-        numbered = []
-        for i, line in enumerate(selected, start=offset):
-            numbered.append(f"{i:6}\t{line}")
-        header = f"[{path}: {total} lines, {size} bytes]"
-        if offset > 1 or offset - 1 + limit < total:
-            header += f" (showing lines {offset}-{min(offset - 1 + limit, total)})"
-        return header + "\n" + "\n".join(numbered)
+        return format_file_excerpt(
+            path,
+            file_info,
+            offset=params.get("offset", 1),
+            limit=params.get("limit", DEFAULT_READ_LIMIT),
+        )
+    except ValueError as e:
+        return f"(error: {e})"
     except IsADirectoryError:
         return f"(error: {path} is a directory, use list_directory instead)"
     except Exception as e:

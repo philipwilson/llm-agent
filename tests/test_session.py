@@ -125,7 +125,7 @@ class TestSessionInit:
         assert context["provider"] == "anthropic"
 
     def test_file_tool_contexts_are_configured(self, session):
-        for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+        for tool_name in ("read_file", "read_many_files", "edit_file", "write_file", "apply_patch"):
             context = TOOL_REGISTRY[tool_name].get("context")
             assert context is not None
             assert isinstance(context["file_observations"], FileObservationStore)

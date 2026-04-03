@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.24.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.25.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -137,17 +137,19 @@ llm-agent -t 60                              # 60-second command timeout
 
 ## Tools
 
-The agent has **16 tools** it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
+The agent has **18 tools** it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
 
 ### Read-Only (no confirmation)
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Read file contents with line numbers. Supports `offset`/`limit` for paging. Reports total line count and file size. |
-| `list_directory` | List directory entries with type indicators and human-readable file sizes. Optional `hidden` flag. |
-| `search_files` | Regex search over file contents using ripgrep (fallback: grep). Supports glob filtering and result cap. Respects `.gitignore`, skips binary files. |
-| `glob_files` | Find files matching a glob pattern recursively. Supports `**` for recursive matching. Returns sorted relative paths capped at 200. |
-| `file_outline` | Show file structure (classes, functions, methods with line numbers) without reading full content. Supports Python, JS/TS, Go, Rust, Java, Ruby, C/C++. |
+| `read_file` | Read file contents with line numbers. Supports `offset`/`limit` for paging, validates ranges, and adds continuation guidance when output is truncated. Reports total line count and file size. |
+| `read_many_files` | Read a small focused set of files in one tool call. Supports explicit paths, include/exclude glob patterns, plus per-file `offset`/`limit` and `max_files`. |
+| `list_directory` | List directory entries with type indicators and human-readable file sizes. Supports optional `hidden`, recursive `depth`, and paginated `offset`/`limit`. |
+| `search_files` | Regex search over file contents using ripgrep (fallback: grep). Supports glob filtering, file-only mode, surrounding context lines, per-file match caps, and a global result cap. Respects `.gitignore`, skips binary files. |
+| `glob_files` | Find files matching a glob pattern recursively. Supports `**` for recursive matching, optional exclude patterns, hidden-file inclusion, and a result cap. Returns sorted relative paths. |
+| `file_outline` | Show file structure (classes, functions, methods with line numbers) without reading full content. Supports Python, JS/TS, Go, Rust, Java, Ruby, C/C++, optional kind filtering, and `max_symbols` truncation guidance. |
+| `lsp_navigate` | Semantic code navigation via a local language server. Supports `document_symbols`, `definition`, `references`, and `hover` when a compatible language server is installed locally for the file type. |
 | `read_url` | Fetch a URL and return cleaned content. HTML is converted to markdown; plain text, markdown, and JSON are returned as text. Returns title, final URL after safe redirects, content type, and content truncated to `max_length` (default 10k chars). 1MB download cap. |
 | `web_search` | Search the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns titles, URLs, and snippets. Default 8 results. |
 
@@ -183,7 +185,7 @@ The agent has **16 tools** it can use autonomously. Read-only tools run without 
 
 | Tool | Description |
 |------|-------------|
-| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). |
+| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `file_outline` and `lsp_navigate` in their navigation tools. |
 
 ---
 
@@ -192,7 +194,7 @@ The agent has **16 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.24.0"
+    __init__.py                # VERSION = "0.25.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
@@ -210,10 +212,12 @@ llm_agent/
         __init__.py            # TOOLS list, TOOL_REGISTRY, dispatch_tool_calls(), build_tool_set(), register/unregister_mcp_tools()
         base.py                # ShellState (cwd tracking), _resolve(), COMMAND_TIMEOUT
         read_file.py           # SCHEMA + handle
+        read_many_files.py     # SCHEMA + handle
         list_directory.py      # SCHEMA + handle
         search_files.py        # SCHEMA + handle
         glob_files.py          # SCHEMA + handle
         file_outline.py        # SCHEMA + handle
+        lsp_navigate.py        # SCHEMA + handle
         read_url.py            # SCHEMA + handle
         web_search.py          # SCHEMA + handle
         write_file.py          # SCHEMA + handle
@@ -489,8 +493,8 @@ The `delegate` tool spawns child agents with isolated conversations and filtered
 
 | Agent | Model | Tools | Use Case |
 |-------|-------|-------|----------|
-| `explore` | haiku | read-only (read_file, list_directory, search_files, glob_files, read_url, web_search) | Fast, cheap research and fact-finding |
-| `code` | (inherits parent) | all except delegate and file_outline | Full coding tasks needing file writes or commands |
+| `explore` | haiku | read-only (read_file, read_many_files, list_directory, search_files, glob_files, file_outline, lsp_navigate, read_url, web_search) | Fast, cheap research and fact-finding |
+| `code` | (inherits parent) | all except delegate and ask_user | Full coding tasks needing file writes or commands |
 
 Subagents **never** have access to `delegate` (no nesting) or `ask_user` (cannot prompt the user). Each runs in its own conversation up to 20 steps, and returns a final text answer to the parent.
 

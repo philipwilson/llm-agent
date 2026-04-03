@@ -21,6 +21,19 @@ SCHEMA = {
                 "type": "string",
                 "description": "Path to the file to outline.",
             },
+            "kinds": {
+                "type": "array",
+                "description": (
+                    "Optional symbol kinds to include. Supported values: "
+                    "class, function, method, module, type, interface, enum, trait, "
+                    "namespace, struct, impl, variable."
+                ),
+                "items": {"type": "string"},
+            },
+            "max_symbols": {
+                "type": "integer",
+                "description": "Maximum number of symbols to return (default: 200).",
+            },
         },
         "required": ["path"],
     },
@@ -32,6 +45,8 @@ def log(params):
     get_display().tool_log(f"  {bold('file_outline')}: {cyan(params.get('path', ''))}")
 
 LOG = log
+
+DEFAULT_MAX_SYMBOLS = 200
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +160,68 @@ def _extract_symbols(lines, patterns):
     return symbols
 
 
+def _classify_label(label):
+    if label.startswith("class "):
+        return "class"
+    if label.startswith(("def ", "async def ", "function ", "fn ", "pub fn ", "func ")):
+        return "function"
+    if label.startswith("method "):
+        return "method"
+    if label.startswith("module "):
+        return "module"
+    if label.startswith("interface "):
+        return "interface"
+    if label.startswith("enum ") or label.startswith("pub enum "):
+        return "enum"
+    if label.startswith("trait ") or label.startswith("pub trait "):
+        return "trait"
+    if label.startswith("namespace "):
+        return "namespace"
+    if label.startswith("struct ") or label.startswith("pub struct ") or " struct" in label:
+        return "struct"
+    if label.startswith("impl "):
+        return "impl"
+    if label.startswith("type "):
+        return "type"
+    if label.startswith("const "):
+        return "variable"
+    return "function"
+
+
+def _extract_symbol_records(lines, patterns):
+    records = []
+    for lineno, indent, label in _extract_symbols(lines, patterns):
+        records.append(
+            {
+                "line": lineno,
+                "indent": indent,
+                "label": label,
+                "kind": _classify_label(label),
+            }
+        )
+    return records
+
+
 def handle(params):
     path = _resolve(params.get("path", ""))
+    kinds = params.get("kinds") or []
+    max_symbols = params.get("max_symbols", DEFAULT_MAX_SYMBOLS)
+
+    if max_symbols < 1:
+        return f"(error: max_symbols must be >= 1, got {max_symbols})"
+    allowed_kinds = {
+        "class", "function", "method", "module", "type", "interface",
+        "enum", "trait", "namespace", "struct", "impl", "variable",
+    }
+    unknown_kinds = sorted(set(kinds) - allowed_kinds)
+    if unknown_kinds:
+        return (
+            "(error: unsupported symbol kinds: "
+            + ", ".join(unknown_kinds)
+            + "; supported kinds: "
+            + ", ".join(sorted(allowed_kinds))
+            + ")"
+        )
 
     try:
         with open(path, "r", errors="replace") as f:
@@ -162,24 +237,41 @@ def handle(params):
     patterns = _LANG_PATTERNS.get(ext.lower(), _FALLBACK)
 
     raw_lines = [line.rstrip("\n") for line in lines]
-    symbols = _extract_symbols(raw_lines, patterns)
+    symbol_records = _extract_symbol_records(raw_lines, patterns)
+    if kinds:
+        requested = set(kinds)
+        symbol_records = [record for record in symbol_records if record["kind"] in requested]
 
-    if not symbols:
+    if not symbol_records:
         return f"[{path}: {total} lines, {size} bytes — no symbols found]"
 
+    truncated = len(symbol_records) > max_symbols
+    visible_symbols = symbol_records[:max_symbols]
+
     # Format output with indentation showing nesting
-    header = f"[{path}: {len(symbols)} symbols, {total} lines]"
+    header = f"[{path}: {len(symbol_records)} symbols, {total} lines]"
     result = [header]
 
     # For Python (and similar), convert absolute indent to relative nesting
     if ext.lower() in (".py", ".rb"):
         # Use indent level directly — each 4 spaces = 1 nesting level
-        for lineno, indent, label in symbols:
+        for record in visible_symbols:
+            lineno = record["line"]
+            indent = record["indent"]
+            label = record["label"]
             nest = indent // 4
             result.append(f"{lineno:6}  {'  ' * nest}{label}")
     else:
-        for lineno, indent, label in symbols:
+        for record in visible_symbols:
+            lineno = record["line"]
+            indent = record["indent"]
+            label = record["label"]
             nest = indent // 4 if indent > 0 else 0
             result.append(f"{lineno:6}  {'  ' * nest}{label}")
+
+    if truncated:
+        result.append(
+            f"(truncated; narrow kinds or increase max_symbols from {max_symbols})"
+        )
 
     return "\n".join(result)

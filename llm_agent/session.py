@@ -216,7 +216,7 @@ class Session:
             )
         }
         file_context = {"file_observations": self._file_observations}
-        for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+        for tool_name in ("read_file", "read_many_files", "edit_file", "write_file", "apply_patch"):
             TOOL_REGISTRY[tool_name]["context"] = file_context
         TOOL_REGISTRY["web_search"]["context"] = web_search.build_context(
             self.client,

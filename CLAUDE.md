@@ -60,12 +60,14 @@ tests/
         test_write_stdin.py    — PTY stdin writes, polling, close flow
         test_edit_file.py      — fuzzy matching, line ranges, batch edits
         test_apply_patch.py    — structured multi-file patch grammar and application
-        test_read_file.py      — line ranges, offset/limit, error handling
+        test_read_file.py      — line ranges, offset/limit, truncation guidance, error handling
+        test_read_many_files.py — batched file reads with include/exclude filtering
         test_write_file.py     — create, overwrite, parent dirs, preview
-        test_list_directory.py — entries, hidden files, sizes, symlinks
+        test_list_directory.py — entries, hidden files, sizes, symlinks, depth, pagination
         test_glob_files.py     — patterns, recursive **, max_results
         test_file_outline.py   — symbol extraction for Python/JS/Go/Rust
-        test_search_files.py   — regex search, glob filter, max_results
+        test_lsp_navigate.py   — fake-session tests for document symbols, definition, references, hover
+        test_search_files.py   — regex search, glob filter, file-only mode, max_results
         test_delegate.py       — missing params, context, run_subagent callback
         test_ask_user.py       — free-text, choices, numeric resolution
         test_tool_dispatch.py  — parallel/sequential routing, timeouts
@@ -171,10 +173,12 @@ llm_agent/
         __init__.py     — collects TOOLS list + TOOL_REGISTRY, build_tool_set(), dispatch_tool_calls(), register/unregister_mcp_tools()
         base.py         — ShellState, BackgroundTask, _resolve, confirm_edit, COMMAND_TIMEOUT
         read_file.py    — SCHEMA + handle
+        read_many_files.py — SCHEMA + handle
         list_directory.py — SCHEMA + handle
         search_files.py — SCHEMA + handle
         glob_files.py   — SCHEMA + handle
         file_outline.py — SCHEMA + handle (file structure with line numbers)
+        lsp_navigate.py — SCHEMA + handle (optional local language-server navigation)
         read_url.py     — SCHEMA + handle
         web_search.py   — SCHEMA + handle
         write_file.py   — SCHEMA + handle
@@ -218,14 +222,16 @@ The key flow:
 
 ## Tools
 
-The model has sixteen tools. Read-only tools run without confirmation; mutating and interactive shell tools require confirmation.
+The model has eighteen tools. Read-only tools run without confirmation; mutating and interactive shell tools require confirmation.
 
 **Read-only (no confirmation):**
-- **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
-- **`list_directory`** — lists directory entries with type indicators and file sizes. Optional `hidden` flag.
-- **`search_files`** — regex search over file contents using ripgrep (falls back to grep). Supports glob filtering and result cap.
-- **`glob_files`** — finds files matching a glob pattern recursively using Python's `glob.glob()`. Supports `**` for recursive matching. Returns sorted relative paths, capped at 200 results by default.
-- **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Useful for understanding large files before diving in.
+- **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging, and tells the model what `offset` to use next when output is truncated. Reports total line count and file size.
+- **`read_many_files`** — reads a small focused set of files in one tool call. Supports explicit `paths`, include/exclude glob patterns relative to an optional base `path`, plus per-file `offset`/`limit` and `max_files`.
+- **`list_directory`** — lists directory entries with type indicators and file sizes. Supports optional `hidden`, recursive `depth`, and paginated `offset`/`limit`.
+- **`search_files`** — regex search over file contents using ripgrep (falls back to grep). Supports glob filtering, file-only mode, surrounding context lines, per-file match caps, and a global result cap.
+- **`glob_files`** — finds files matching a glob pattern recursively. Supports `**` for recursive matching, optional exclude patterns, hidden-file inclusion, and a result cap. Returns sorted relative paths.
+- **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Supports optional kind filtering and `max_symbols` truncation guidance.
+- **`lsp_navigate`** — semantic code navigation via a local language server. Supports `document_symbols`, `definition`, `references`, and `hover`. Works when a compatible language server is installed locally for the file type (currently Python, JS/TS, Go, Rust).
 - **`read_url`** — fetches a URL and returns cleaned content. HTML is converted to markdown; plain text, markdown, and JSON are returned as text. Returns title, final URL after safe redirects, content type, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns numbered results with titles, URLs, and snippets. Default 8 results.
 - **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status, PID, cwd, timestamps, runtime, and output; pass `tail_lines` to show only the last N lines; or omit `task_id` to list all tasks.
@@ -244,7 +250,7 @@ The model has sixteen tools. Read-only tools run without confirmation; mutating 
 - **`ask_user`** — asks the user a clarifying question. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
 
 **Delegation (no confirmation):**
-- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
+- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `read_many_files`, `file_outline`, and `lsp_navigate` alongside the existing navigation tools. Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
 
 ## MCP Client Support
 
