@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.25.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.26.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -166,7 +166,7 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 
 | Tool | Description |
 |------|-------------|
-| `check_task` | Inspect background tasks started by `run_command`. Pass `task_id` for PID, cwd, timestamps, runtime, and output. Pass `tail_lines` to show only the last N lines of output, or omit `task_id` to list all tasks. |
+| `check_task` | Inspect background tasks started by `run_command` or background `delegate` calls. Pass `task_id` for shell-task PID/cwd/runtime/output or delegated-subagent model/usage/result details. Pass `tail_lines` to show only the last N lines of shell output, or omit `task_id` to list all tasks. |
 
 ### Interactive shell sessions
 
@@ -179,13 +179,13 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 
 | Tool | Description |
 |------|-------------|
-| `ask_user` | Ask the user a clarifying question when the request is ambiguous. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. |
+| `ask_user` | Ask the user a clarifying question when the request is ambiguous. Supports the legacy single-question form plus one to three short structured questions with stable IDs, headers, and optional multiple-choice options. Always prompts, even in yolo mode. Not available to subagents. |
 
 ### Delegation (no confirmation)
 
 | Tool | Description |
 |------|-------------|
-| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `file_outline` and `lsp_navigate` in their navigation tools. |
+| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Delegated runs return agent/model/status/step metadata plus the final subagent result, and may be backgrounded for later inspection via `check_task`. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `file_outline` and `lsp_navigate` in their navigation tools. |
 
 ---
 
@@ -194,7 +194,7 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.25.0"
+    __init__.py                # VERSION = "0.26.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
@@ -324,7 +324,7 @@ class Display:
     def tool_log(message)                                          # tool invocation log
     def tool_result(line_count)                                    # tool output summary
     def confirm(preview_lines, prompt_text) -> bool                # Y/n confirmation
-    def ask_user(question, choices=None) -> str                    # clarifying question
+    def ask_user(question, choices=None) -> str | dict[str, str]   # clarifying question(s)
     def auto_approved(preview_lines)                               # auto-approved preview
     def status(message) / error(message) / info(message)           # output categories
 ```

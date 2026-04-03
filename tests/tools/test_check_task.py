@@ -8,6 +8,17 @@ from llm_agent.tools.base import shell
 from llm_agent.tools.check_task import handle
 
 
+class FakeSubagentStore:
+    def __init__(self, tasks=None):
+        self._tasks = tasks or {}
+
+    def get_task(self, task_id):
+        return self._tasks.get(task_id)
+
+    def list_tasks(self):
+        return list(self._tasks.values())
+
+
 class TestCheckTask:
     def test_no_tasks(self):
         result = handle({})
@@ -62,3 +73,56 @@ class TestCheckTask:
     def test_invalid_tail_lines(self):
         result = handle({"task_id": "bg-1", "tail_lines": 0})
         assert "tail_lines must be >= 1" in result
+
+    def test_check_delegated_background_task(self):
+        store = FakeSubagentStore(
+            {
+                "sub-1": {
+                    "task_id": "sub-1",
+                    "type": "delegate",
+                    "agent": "explore",
+                    "task": "research the parser",
+                    "model": "claude-haiku-4-5",
+                    "status": "completed",
+                    "started_at": time.time() - 1,
+                    "finished_at": time.time(),
+                    "duration_seconds": 1.0,
+                    "steps": 2,
+                    "usage": {"input": 100, "output": 50, "cache_read": 0, "cache_create": 0},
+                    "result": "Found the relevant files.",
+                }
+            }
+        )
+
+        result = handle({"task_id": "sub-1"}, context={"subagent_tasks": store})
+
+        assert "delegated subagent" in result
+        assert "Agent: explore" in result
+        assert "Steps: 2" in result
+        assert "Found the relevant files." in result
+
+    def test_list_all_tasks_includes_delegated_tasks(self):
+        store = FakeSubagentStore(
+            {
+                "sub-1": {
+                    "task_id": "sub-1",
+                    "type": "delegate",
+                    "agent": "explore",
+                    "task": "research the parser",
+                    "model": "claude-haiku-4-5",
+                    "status": "running",
+                    "started_at": time.time(),
+                    "finished_at": None,
+                    "duration_seconds": 0.1,
+                    "steps": 0,
+                    "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0},
+                    "result": "",
+                }
+            }
+        )
+
+        result = handle({}, context={"subagent_tasks": store})
+
+        assert "Background tasks:" in result
+        assert "sub-1" in result
+        assert "delegate" in result

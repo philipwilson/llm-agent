@@ -2,6 +2,7 @@
 
 import pytest
 
+from llm_agent.agents import BackgroundSubagentStore
 from llm_agent.session import Session
 from llm_agent.tools import TOOL_REGISTRY
 from llm_agent.tools.base import FileObservationStore
@@ -130,6 +131,46 @@ class TestSessionInit:
             assert context is not None
             assert isinstance(context["file_observations"], FileObservationStore)
             assert context["file_observations"] is session._file_observations
+
+    def test_delegate_context_accepts_model_override_and_metadata(self, monkeypatch):
+        monkeypatch.setattr(
+            "llm_agent.agent.refresh_project_context",
+            lambda: "Test project context",
+        )
+
+        captured = {}
+
+        def fake_run_subagent(agent_name, task, client, model, auto_approve,
+                              thinking_level=None, model_override=None, return_metadata=False):
+            captured["args"] = {
+                "agent_name": agent_name,
+                "task": task,
+                "client": client,
+                "model": model,
+                "auto_approve": auto_approve,
+                "thinking_level": thinking_level,
+                "model_override": model_override,
+                "return_metadata": return_metadata,
+            }
+            return {"status": "completed", "result": "ok"}
+
+        monkeypatch.setattr("llm_agent.agents.run_subagent", fake_run_subagent)
+
+        local_session = Session(FakeClient(), "claude-sonnet-4-6", auto_approve=False)
+        run_fn = TOOL_REGISTRY["delegate"]["context"]["run_subagent"]
+        run_fn("explore", "check", model_override="haiku", return_metadata=True)
+
+        assert captured["args"]["agent_name"] == "explore"
+        assert captured["args"]["task"] == "check"
+        assert captured["args"]["model"] == "claude-sonnet-4-6"
+        assert captured["args"]["model_override"] == "haiku"
+        assert captured["args"]["return_metadata"] is True
+
+    def test_check_task_context_includes_subagent_store(self, session):
+        context = TOOL_REGISTRY["check_task"].get("context")
+        assert context is not None
+        assert isinstance(context["subagent_tasks"], BackgroundSubagentStore)
+        assert context["subagent_tasks"] is session._subagent_tasks
 
     def test_clear_resets_file_observations(self, session):
         session._file_observations._observations["/tmp/example"] = {"st_size": 1}

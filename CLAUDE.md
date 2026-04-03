@@ -234,7 +234,7 @@ The model has eighteen tools. Read-only tools run without confirmation; mutating
 - **`lsp_navigate`** — semantic code navigation via a local language server. Supports `document_symbols`, `definition`, `references`, and `hover`. Works when a compatible language server is installed locally for the file type (currently Python, JS/TS, Go, Rust).
 - **`read_url`** — fetches a URL and returns cleaned content. HTML is converted to markdown; plain text, markdown, and JSON are returned as text. Returns title, final URL after safe redirects, content type, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns numbered results with titles, URLs, and snippets. Default 8 results.
-- **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status, PID, cwd, timestamps, runtime, and output; pass `tail_lines` to show only the last N lines; or omit `task_id` to list all tasks.
+- **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true` or `delegate` with `run_in_background: true`. Pass a `task_id` for shell-task status, PID, cwd, timestamps, runtime, and output, or for delegated-subagent status, model, usage, and final result; pass `tail_lines` to show only the last N lines of shell output; or omit `task_id` to list all tasks.
 
 **Mutating (always require confirmation):**
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically. Overwriting an existing file requires a fresh `read_file` in the current session; if the file changed after it was read, the overwrite is rejected until it is read again. Existing-file overwrites preserve encoding and newline style when possible, surface format metadata in the preview/result, and reject obvious omission placeholders such as `... existing code ...`.
@@ -247,10 +247,10 @@ The model has eighteen tools. Read-only tools run without confirmation; mutating
 - **`write_stdin`** — sends input to a PTY session started via `start_session`, polls for new output when `chars` is empty, or terminates the session with `close: true`. Non-empty writes and closes always prompt, even in yolo mode.
 
 **Interactive (always sequential):**
-- **`ask_user`** — asks the user a clarifying question. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
+- **`ask_user`** — asks the user a clarifying question. Supports the legacy single-question form plus one to three short structured questions with stable IDs, headers, and optional multiple-choice options. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
 
 **Delegation (no confirmation):**
-- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `read_many_files`, `file_outline`, and `lsp_navigate` alongside the existing navigation tools. Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
+- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Delegated runs return agent/model/status/step metadata plus the final subagent result, and the display layer logs start/progress/done status lines. `run_in_background: true` starts the subagent in a daemon thread and returns a task ID for `check_task`. Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `read_many_files`, `file_outline`, and `lsp_navigate` alongside the existing navigation tools. Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
 
 ## MCP Client Support
 
@@ -387,7 +387,7 @@ All user-facing output goes through a `Display` protocol (`display.py`), accesse
 - `tool_log(message)` — tool invocation logging (already ANSI-formatted)
 - `tool_result(line_count)` — tool output summary
 - `confirm(preview_lines, prompt_text) -> bool` — show preview, ask Y/n
-- `ask_user(question, choices=None) -> str` — ask a clarifying question (free-text or multiple-choice)
+- `ask_user(question, choices=None) -> str | dict[str, str]` — ask a clarifying question (legacy single question) or a short structured set of questions
 - `auto_approved(preview_lines)` — show preview for auto-approved actions
 - `status(message)` / `error(message)` / `info(message)` — output categories
 
@@ -425,7 +425,7 @@ Interactive mode uses a Textual-based TUI by default (falls back to readline if 
 3. User presses y/n/Enter → app signals the event
 4. Worker resumes with the result
 
-**Ask flow (TUI):** Same threading pattern as confirmation — `TUIDisplay.ask_user()` writes the question to RichLog, switches input to ask mode (free-text placeholder), blocks on a separate `threading.Event`, and returns the user's answer.
+**Ask flow (TUI):** Same threading pattern as confirmation — `TUIDisplay.ask_user()` writes each question to RichLog or a selection panel, blocks on a separate `threading.Event`, and returns either a single answer or an ID-keyed answer mapping for structured prompts.
 
 **Streaming:** Tokens are accumulated in a buffer during streaming. The full response is written to `RichLog` as a single `write()` call on `stream_end()` (each `write()` creates an independent wrapping block, so per-batch writes would cause narrow paragraphs). A `~` indicator replaces the `>` prompt marker during streaming.
 

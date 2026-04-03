@@ -1,8 +1,10 @@
 """Integration tests for subagent delegation via run_subagent."""
 
+import time
+
 import pytest
 
-from llm_agent.agents import run_subagent, BUILTIN_AGENTS
+from llm_agent.agents import BackgroundSubagentStore, run_subagent, BUILTIN_AGENTS
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +194,29 @@ class TestRunSubagent:
         run_subagent("code", "fix it", FakeClient(), "claude-sonnet-4-6", False)
         assert captured["model"] == "claude-sonnet-4-6"
 
+    def test_model_override_wins(self, monkeypatch):
+        """Per-run model override should win over the agent default and parent model."""
+        captured = {}
+
+        def capturing_turn(client, model, messages, auto_approve,
+                           usage_totals=None, tools=None, tool_registry=None,
+                           system_prompt=None, **kwargs):
+            captured["model"] = model
+            messages.append({"role": "assistant", "content": "done"})
+            return messages, True
+
+        monkeypatch.setattr("llm_agent.agent.agent_turn", capturing_turn)
+
+        run_subagent(
+            "code",
+            "fix it",
+            FakeClient(),
+            "claude-sonnet-4-6",
+            False,
+            model_override="haiku",
+        )
+        assert captured["model"] == "claude-haiku-4-5"
+
     def test_custom_agent_ollama_alias_uses_ollama_turn(self, monkeypatch):
         """Custom agent aliases that resolve to ollama:* should use ollama_agent_turn."""
         captured = {}
@@ -257,3 +282,68 @@ class TestRunSubagent:
         assert mock_display.active_subagents == 0
         run_subagent("explore", "check", FakeClient(), "claude-sonnet-4-6", False)
         assert mock_display.active_subagents == 0  # restored after
+
+    def test_return_metadata(self, monkeypatch):
+        fake_turn = _make_turn_fn([
+            ("The answer is 42", True),
+        ])
+        monkeypatch.setattr("llm_agent.agent.agent_turn", fake_turn)
+
+        result = run_subagent(
+            "explore",
+            "what is 6*7?",
+            FakeClient(),
+            "claude-sonnet-4-6",
+            False,
+            return_metadata=True,
+        )
+
+        assert result["agent"] == "explore"
+        assert result["model"] == "claude-haiku-4-5"
+        assert result["status"] == "completed"
+        assert result["steps"] == 1
+        assert result["usage"]["input"] == 100
+        assert result["result"] == "The answer is 42"
+
+    def test_subagent_status_lines_include_progress_and_done(self, mock_display, monkeypatch):
+        fake_turn = _make_turn_fn([
+            ([{"type": "tool_use", "id": "t1", "name": "read_file", "input": {}}], False),
+            ("final answer", True),
+        ])
+        monkeypatch.setattr("llm_agent.agent.agent_turn", fake_turn)
+
+        run_subagent("explore", "read and summarize", FakeClient(), "claude-sonnet-4-6", False)
+
+        assert any("subagent starting: model claude-haiku-4-5" in status for status in mock_display.statuses)
+        assert any("subagent progress: step 1" in status for status in mock_display.statuses)
+        assert any("subagent done: 2 steps" in status for status in mock_display.statuses)
+
+    def test_background_subagent_store_runs_task(self, monkeypatch):
+        fake_turn = _make_turn_fn([
+            ("background result", True),
+        ])
+        monkeypatch.setattr("llm_agent.agent.agent_turn", fake_turn)
+
+        store = BackgroundSubagentStore()
+        info = store.start(
+            "explore",
+            "research this",
+            FakeClient(),
+            "claude-sonnet-4-6",
+            False,
+        )
+
+        assert info["task_id"] == "sub-1"
+        assert info["status"] in {"running", "completed"}
+
+        deadline = time.time() + 2
+        latest = info
+        while time.time() < deadline:
+            latest = store.get_task("sub-1")
+            if latest["status"] != "running":
+                break
+            time.sleep(0.02)
+
+        assert latest["status"] == "completed"
+        assert latest["model"] == "claude-haiku-4-5"
+        assert latest["result"] == "background result"

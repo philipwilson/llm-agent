@@ -96,3 +96,35 @@ class TestDisplayProtocol:
         monkeypatch.setattr("builtins.input", raise_eof)
         result = display.ask_user("What?")
         assert result == "(no answer provided)"
+
+    def test_ask_user_structured_questions(self, monkeypatch, capsys):
+        display = Display()
+        answers = iter(["2", "Keep it small"])
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+        result = display.ask_user(
+            [
+                {
+                    "header": "Language",
+                    "id": "language",
+                    "question": "Which language should I use?",
+                    "options": [
+                        {"label": "Go", "description": "use Go"},
+                        {"label": "Python", "description": "use Python"},
+                    ],
+                },
+                {
+                    "header": "Notes",
+                    "id": "notes",
+                    "question": "Anything else?",
+                },
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert result == {
+            "language": "Python",
+            "notes": "Keep it small",
+        }
+        assert "Recorded answers" in captured.out
+        assert "Language" in captured.out

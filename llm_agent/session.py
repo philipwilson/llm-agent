@@ -10,6 +10,7 @@ from llm_agent.display import get_display
 from llm_agent.formatting import red, yellow
 from llm_agent.skills import load_all_skills, render_skill, format_skill_list
 from llm_agent.tools.base import FileObservationStore
+from llm_agent.agents import BackgroundSubagentStore
 
 
 class Session:
@@ -25,6 +26,7 @@ class Session:
         self.skills = load_all_skills()
         self.last_response = ""
         self._file_observations = FileObservationStore()
+        self._subagent_tasks = BackgroundSubagentStore()
 
         # Per-session system prompt (Phase 3)
         from llm_agent.agent import refresh_project_context
@@ -201,19 +203,36 @@ class Session:
 
         delegate.SCHEMA["description"] = (
             "Delegate a task to a specialized subagent that runs independently "
-            "and returns its findings. Use 'explore' for fast read-only research. "
-            "Use 'code' for tasks that need file writes or commands.\n\n"
+            "and returns agent/model/status metadata plus its findings. "
+            "Use 'explore' for fast read-only research. Use 'code' for tasks "
+            "that need file writes or commands. You may optionally set a "
+            "per-run model override or run the subagent in the background "
+            "for later inspection via check_task.\n\n"
             f"Available agents:\n{agent_list}"
         )
 
         invalidate_tool_cache()
 
         # Phase 2: set context on the registry entry (replaces monkey-patch)
-        TOOL_REGISTRY["delegate"]["context"] = {
-            "run_subagent": lambda agent_name, task: run_subagent(
+        delegate_context = {
+            "run_subagent": lambda agent_name, task, model_override=None, return_metadata=False: run_subagent(
                 agent_name, task, self.client, self.model,
                 self.auto_approve, thinking_level=self.thinking_level,
-            )
+                model_override=model_override, return_metadata=return_metadata,
+            ),
+            "start_subagent": lambda agent_name, task, model_override=None: self._subagent_tasks.start(
+                agent_name,
+                task,
+                self.client,
+                self.model,
+                self.auto_approve,
+                thinking_level=self.thinking_level,
+                model_override=model_override,
+            ),
+        }
+        TOOL_REGISTRY["delegate"]["context"] = delegate_context
+        TOOL_REGISTRY["check_task"]["context"] = {
+            "subagent_tasks": self._subagent_tasks,
         }
         file_context = {"file_observations": self._file_observations}
         for tool_name in ("read_file", "read_many_files", "edit_file", "write_file", "apply_patch"):

@@ -11,7 +11,13 @@ from textual.theme import Theme
 from textual.widgets import OptionList, RichLog, Rule, Static, TextArea
 from rich.text import Text
 
-from llm_agent.display import Display, set_display
+from llm_agent.display import (
+    Display,
+    _format_answers_summary_lines,
+    _normalize_choice_answer,
+    _question_heading_and_prompt,
+    set_display,
+)
 from llm_agent.formatting import bold, dim, format_tokens
 
 
@@ -344,6 +350,21 @@ class TUIDisplay(Display):
 
     def ask_user(self, question, choices=None):
         """Show question, switch input to ask/selection mode, block until answered."""
+        if isinstance(question, list):
+            answers = {}
+            total = len(question)
+            for index, question_spec in enumerate(question, 1):
+                title, prompt = _question_heading_and_prompt(
+                    question_spec, index, total
+                )
+                question_text = title if prompt is None else f"{title}\n{prompt}"
+                answer = self.ask_user(question_text, question_spec.get("options"))
+                answers[question_spec["id"]] = _normalize_choice_answer(
+                    answer, question_spec.get("options")
+                )
+            self._write("\n".join(_format_answers_summary_lines(question, answers)))
+            return answers
+
         if choices:
             # Selection mode — full panel with question and options
             self._selection_event.clear()

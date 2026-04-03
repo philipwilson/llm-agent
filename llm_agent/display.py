@@ -17,6 +17,49 @@ from contextlib import contextmanager
 from llm_agent.formatting import bold, dim
 
 
+_DEFAULT_ANSWER = "(no answer provided)"
+
+
+def _normalize_choice_answer(answer, choices):
+    if not isinstance(answer, str):
+        return _DEFAULT_ANSWER
+    answer = answer.strip() or _DEFAULT_ANSWER
+    if not choices:
+        return answer
+    if answer.isdigit():
+        idx = int(answer) - 1
+        if 0 <= idx < len(choices):
+            return choices[idx].get("label", answer)
+    folded = answer.casefold()
+    for choice in choices:
+        label = choice.get("label", "")
+        if label.casefold() == folded:
+            return label
+    return answer
+
+
+def _question_heading_and_prompt(question_spec, index, total):
+    header = question_spec.get("header", "").strip()
+    prompt = question_spec.get("question", "").strip()
+    heading_parts = []
+    if total > 1:
+        heading_parts.append(f"[{index}/{total}]")
+    if header:
+        heading_parts.append(header)
+    if heading_parts:
+        return " ".join(heading_parts), prompt
+    return prompt, None
+
+
+def _format_answers_summary_lines(questions, answers):
+    lines = ["", f"  {dim('Recorded answers:')}"]
+    for question in questions:
+        label = question.get("header") or question.get("id") or question.get("question", "")
+        answer = answers.get(question.get("id"), _DEFAULT_ANSWER)
+        lines.append(f"    {label}: {dim(answer)}")
+    return lines
+
+
 class Display:
     """Default display: prints to stdout, reads from stdin.
 
@@ -102,18 +145,11 @@ class Display:
             answer = input(f"  {dim(prompt_text)} ").strip().lower()
         return answer in ("", "y", "yes")
 
-    def ask_user(self, question, choices=None):
-        """Ask the user a clarifying question.
-
-        Args:
-            question: the question to display.
-            choices: optional list of dicts with 'label' and optional 'description'.
-
-        Returns:
-            The user's answer as a string.
-        """
+    def _ask_single_question(self, title, prompt=None, choices=None):
         with self._lock:
-            print(f"\n  {bold(question)}")
+            print(f"\n  {bold(title)}")
+            if prompt:
+                print(f"  {prompt}")
             if choices:
                 for i, choice in enumerate(choices, 1):
                     label = choice.get("label", "")
@@ -126,7 +162,36 @@ class Display:
                 answer = input(f"  {dim('>')} ").strip()
             except EOFError:
                 answer = ""
-        return answer or "(no answer provided)"
+        return answer or _DEFAULT_ANSWER
+
+    def ask_user(self, question, choices=None):
+        """Ask the user a clarifying question.
+
+        Args:
+            question: the question to display, or a list of structured questions.
+            choices: optional list of dicts with 'label' and optional 'description'.
+
+        Returns:
+            A string answer for legacy single-question prompts, or a dict of answers
+            keyed by question ID for structured prompts.
+        """
+        if isinstance(question, list):
+            answers = {}
+            total = len(question)
+            for index, question_spec in enumerate(question, 1):
+                title, prompt = _question_heading_and_prompt(question_spec, index, total)
+                answer = self._ask_single_question(
+                    title, prompt, question_spec.get("options")
+                )
+                answers[question_spec["id"]] = _normalize_choice_answer(
+                    answer, question_spec.get("options")
+                )
+            with self._lock:
+                for line in _format_answers_summary_lines(question, answers):
+                    print(line)
+            return answers
+
+        return self._ask_single_question(question, None, choices)
 
     def auto_approved(self, preview_lines):
         """Show a preview that was auto-approved (no confirmation needed)."""

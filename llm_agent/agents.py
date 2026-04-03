@@ -2,6 +2,8 @@
 
 import json
 import os
+import threading
+import time
 
 from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, format_tokens, yellow, red
@@ -58,6 +60,205 @@ MODEL_ALIASES = {
     "nemotron-nano": "ollama:nemotron-3-nano:latest",
 }
 
+_EMPTY_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+
+
+def _provider(model_name):
+    if model_name.startswith("ollama:"):
+        return "ollama"
+    if model_name.startswith("gemini-"):
+        return "gemini"
+    if model_name in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini"):
+        return "openai"
+    return "anthropic"
+
+
+def _extract_final_text(messages):
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [
+                block["text"]
+                for block in content
+                if block.get("type") == "text" and block.get("text")
+            ]
+            if texts:
+                return "\n".join(texts)
+        break
+    return "(subagent produced no text output)"
+
+
+def _resolve_subagent_definition(agent_name):
+    agents = load_all_agents()
+    defn = agents.get(agent_name)
+    if defn is None:
+        available = ", ".join(sorted(agents.keys()))
+        return None, (
+            f"(error: unknown agent '{agent_name}'. Available agents: {available})"
+        )
+    return defn, None
+
+
+def _resolve_subagent_model(defn, parent_model, model_override=None):
+    sub_model = model_override or defn.get("model") or parent_model
+    if sub_model in MODEL_ALIASES:
+        sub_model = MODEL_ALIASES[sub_model]
+    return sub_model
+
+
+class BackgroundSubagentTask:
+    """Tracks a delegated subagent running in a background thread."""
+
+    def __init__(
+        self,
+        task_id,
+        agent_name,
+        task,
+        client,
+        parent_model,
+        auto_approve,
+        thinking_level=None,
+        model_override=None,
+    ):
+        self.task_id = task_id
+        self.agent = agent_name
+        self.task = task
+        self.parent_model = parent_model
+        self.model_override = model_override
+        self.started_at = time.time()
+        self.finished_at = None
+        self._lock = threading.Lock()
+        self._metadata = {
+            "agent": agent_name,
+            "model": None,
+            "status": "running",
+            "steps": 0,
+            "duration_seconds": 0.0,
+            "usage": dict(_EMPTY_USAGE),
+            "result": "",
+        }
+        defn, error = _resolve_subagent_definition(agent_name)
+        if defn is not None:
+            self._metadata["model"] = _resolve_subagent_model(
+                defn, parent_model, model_override=model_override
+            )
+        else:
+            self._metadata["status"] = "error"
+            self._metadata["result"] = error
+            self.finished_at = self.started_at
+        self._thread = threading.Thread(
+            target=self._run,
+            args=(client, auto_approve, thinking_level),
+            daemon=True,
+        )
+
+    def start(self):
+        if self.finished_at is None:
+            self._thread.start()
+
+    def _run(self, client, auto_approve, thinking_level):
+        try:
+            result = run_subagent(
+                self.agent,
+                self.task,
+                client,
+                self.parent_model,
+                auto_approve,
+                thinking_level=thinking_level,
+                model_override=self.model_override,
+                return_metadata=True,
+            )
+        except Exception as e:
+            result = {
+                "agent": self.agent,
+                "model": self._metadata.get("model"),
+                "status": "error",
+                "steps": 0,
+                "duration_seconds": 0.0,
+                "usage": dict(_EMPTY_USAGE),
+                "result": f"(error in background subagent '{self.agent}': {e})",
+            }
+        with self._lock:
+            self._metadata = result
+            self.finished_at = time.time()
+
+    def snapshot(self):
+        with self._lock:
+            metadata = dict(self._metadata)
+            usage = dict(metadata.get("usage") or _EMPTY_USAGE)
+        finished_at = self.finished_at
+        status = metadata.get("status", "running")
+        if finished_at is None and status != "running":
+            finished_at = time.time()
+        duration = max(
+            0.0,
+            (finished_at or time.time()) - self.started_at,
+        )
+        return {
+            "task_id": self.task_id,
+            "type": "delegate",
+            "agent": self.agent,
+            "task": self.task,
+            "requested_model": self.model_override,
+            "model": metadata.get("model"),
+            "status": status,
+            "steps": metadata.get("steps", 0),
+            "started_at": self.started_at,
+            "finished_at": finished_at,
+            "duration_seconds": duration,
+            "usage": usage,
+            "result": metadata.get("result", ""),
+        }
+
+
+class BackgroundSubagentStore:
+    """Per-session background delegated subagent tasks."""
+
+    def __init__(self):
+        self._tasks = {}
+        self._counter = 0
+        self._lock = threading.Lock()
+
+    def start(
+        self,
+        agent_name,
+        task,
+        client,
+        parent_model,
+        auto_approve,
+        thinking_level=None,
+        model_override=None,
+    ):
+        with self._lock:
+            self._counter += 1
+            task_id = f"sub-{self._counter}"
+            bg_task = BackgroundSubagentTask(
+                task_id,
+                agent_name,
+                task,
+                client,
+                parent_model,
+                auto_approve,
+                thinking_level=thinking_level,
+                model_override=model_override,
+            )
+            self._tasks[task_id] = bg_task
+        bg_task.start()
+        return bg_task.snapshot()
+
+    def get_task(self, task_id):
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+        return task.snapshot()
+
+    def list_tasks(self):
+        return [task.snapshot() for task in self._tasks.values()]
+
 
 def _load_custom_agents():
     """Load custom agent definitions from ~/.agents/ and .agents/ directories.
@@ -100,21 +301,44 @@ def load_all_agents():
     return agents
 
 
-def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=None):
-    """Run a subagent to completion and return its final text answer."""
+def run_subagent(
+    agent_name,
+    task,
+    client,
+    model,
+    auto_approve,
+    thinking_level=None,
+    model_override=None,
+    return_metadata=False,
+):
+    """Run a subagent to completion and return its final text answer or metadata."""
     from llm_agent.tools import build_tool_set
     from llm_agent.tools.base import FileObservationStore
 
-    agents = load_all_agents()
-    defn = agents.get(agent_name)
-    if defn is None:
-        available = ", ".join(sorted(agents.keys()))
-        return f"(error: unknown agent '{agent_name}'. Available agents: {available})"
+    def finish(status, result_text, *, resolved_model=None, turns=0, usage=None, started_at=None):
+        duration = 0.0
+        if started_at is not None:
+            duration = max(0.0, time.monotonic() - started_at)
+        metadata = {
+            "agent": agent_name,
+            "model": resolved_model,
+            "status": status,
+            "steps": turns,
+            "duration_seconds": round(duration, 2),
+            "usage": dict(usage or _EMPTY_USAGE),
+            "result": result_text,
+        }
+        return metadata if return_metadata else result_text
+
+    defn, error = _resolve_subagent_definition(agent_name)
+    if error:
+        return finish(
+            "error",
+            error,
+        )
 
     # Resolve model
-    sub_model = defn.get("model") or model  # None means inherit
-    if sub_model in MODEL_ALIASES:
-        sub_model = MODEL_ALIASES[sub_model]
+    sub_model = _resolve_subagent_model(defn, model, model_override=model_override)
 
     # Resolve tools
     tool_names = defn.get("tools")
@@ -132,21 +356,19 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
 
     # Create a separate client if the provider differs
     sub_client = client
-    def _provider(m):
-        if m.startswith("ollama:"):
-            return "ollama"
-        if m.startswith("gemini-"):
-            return "gemini"
-        if m in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini"):
-            return "openai"
-        return "anthropic"
-
     if _provider(sub_model) != _provider(model):
         from llm_agent.cli import make_client
         try:
             sub_client = make_client(sub_model)
         except SystemExit:
-            return f"(error: cannot create {_provider(sub_model)} client for subagent '{agent_name}' — missing API key or SDK)"
+            return finish(
+                "error",
+                (
+                    f"(error: cannot create {_provider(sub_model)} client for subagent "
+                    f"'{agent_name}' — missing API key or SDK)"
+                ),
+                resolved_model=sub_model,
+            )
 
     if "web_search" in tool_registry:
         from llm_agent.tools import web_search
@@ -181,9 +403,10 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     sub_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
     max_steps = 20
     steps = 0
+    started_at = time.monotonic()
 
     display = get_display()
-    display.status(f"  [{agent_name} subagent starting (model: {sub_model})]")
+    display.status(f"  [{agent_name} subagent starting: model {sub_model}]")
     display.subagent_started()
 
     extra_kwargs = {}
@@ -204,15 +427,25 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
                         system_prompt=system_prompt,
                         **extra_kwargs,
                     )
+                    steps += 1
                     if done:
                         break
-                    steps += 1
+                    display.status(
+                        f"  [{agent_name} subagent progress: step {steps}, continuing]"
+                    )
                     if steps >= max_steps:
                         display.error(f"\n{yellow(f'  (subagent hit step limit of {max_steps})')}")
                         break
             except KeyboardInterrupt:
                 display.status(f"  (subagent interrupted)")
-                return "(subagent was interrupted by the user)"
+                return finish(
+                    "interrupted",
+                    "(subagent was interrupted by the user)",
+                    resolved_model=sub_model,
+                    turns=steps,
+                    usage=sub_usage,
+                    started_at=started_at,
+                )
     finally:
         display.subagent_finished()
 
@@ -220,22 +453,24 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     cache_info = ""
     if sub_usage.get("cache_read", 0) > 0:
         cache_info = f", {format_tokens(sub_usage['cache_read'])} cached"
+    duration_seconds = max(0.0, time.monotonic() - started_at)
+    status = "completed"
+    if steps >= max_steps:
+        status = "step_limit"
     display.status(
         f"  [{agent_name} subagent done: "
+        f"{steps} step{'s' if steps != 1 else ''}, "
         f"{format_tokens(sub_usage['input'])} in, "
-        f"{format_tokens(sub_usage['output'])} out{cache_info}]"
+        f"{format_tokens(sub_usage['output'])} out{cache_info}, "
+        f"{duration_seconds:.2f}s]"
     )
 
-    # Extract final text answer from the last assistant message
-    for msg in reversed(messages):
-        if msg.get("role") == "assistant":
-            content = msg.get("content")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                texts = [b["text"] for b in content if b.get("type") == "text" and b.get("text")]
-                if texts:
-                    return "\n".join(texts)
-            break
-
-    return "(subagent produced no text output)"
+    result_text = _extract_final_text(messages)
+    return finish(
+        status,
+        result_text,
+        resolved_model=sub_model,
+        turns=steps,
+        usage=sub_usage,
+        started_at=started_at,
+    )
