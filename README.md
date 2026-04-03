@@ -83,7 +83,7 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has thirteen tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has fifteen tools it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
 
 **Read-only:**
 - **read_file** -- read file contents with line numbers, optional offset/limit
@@ -92,11 +92,16 @@ The agent has thirteen tools it can use autonomously. Read-only tools run withou
 - **glob_files** -- find files by glob pattern recursively (`**/*.py`, etc.)
 - **read_url** -- fetch a URL and return cleaned markdown/text content
 - **web_search** -- search the web via provider-native search when available, with DuckDuckGo fallback
+- **check_task** -- inspect background tasks started by `run_command`, including recent output
 
 **Mutating (require confirmation):**
 - **write_file** -- create or overwrite a file
 - **edit_file** -- targeted find-and-replace in an existing file
-- **run_command** -- run an arbitrary shell command
+- **run_command** -- run an arbitrary shell command, optionally in the background
+
+**Interactive shell (require confirmation for writes):**
+- **start_session** -- start a PTY-backed interactive command and return a session ID
+- **write_stdin** -- send input to a `start_session` PTY, poll new output, or close the session
 
 **Interactive (always prompts):**
 - **ask_user** -- ask the user a clarifying question (free-text or multiple-choice); always prompts, even in yolo mode
@@ -104,7 +109,7 @@ The agent has thirteen tools it can use autonomously. Read-only tools run withou
 **Delegation (no confirmation):**
 - **delegate** -- spawn a subagent with its own conversation and filtered tool set (built-in: `explore` for read-only research, `code` for full access)
 
-In yolo mode (`-y`), `run_command` auto-approves unless the command matches known dangerous patterns (e.g. `rm -rf`, `mkfs`, `dd`).
+In yolo mode (`-y`), `run_command` auto-approves unless the command matches known dangerous patterns (e.g. `rm -rf`, `mkfs`, `dd`). Background commands return a task ID immediately; use `check_task` to inspect status and recent output. PTY session starts and non-empty `write_stdin` calls still prompt explicitly.
 
 ## Features
 

@@ -150,6 +150,8 @@ class TestRunSubagent:
         assert "edit_file" in tool_names
         assert "run_command" in tool_names
         assert "check_task" in tool_names
+        assert "start_session" in tool_names
+        assert "write_stdin" in tool_names
         assert "delegate" not in tool_names
         assert "ask_user" not in tool_names
 

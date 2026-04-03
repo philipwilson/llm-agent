@@ -31,7 +31,8 @@ BUILTIN_AGENTS = {
         "model": None,  # inherit from parent
         "tools": [
             "read_file", "list_directory", "search_files", "glob_files",
-            "read_url", "web_search", "write_file", "edit_file", "run_command", "check_task",
+            "read_url", "web_search", "write_file", "edit_file",
+            "run_command", "check_task", "start_session", "write_stdin",
         ],
         "system_prompt": None,  # inherit from parent
     },

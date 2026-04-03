@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.22.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.23.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -43,7 +43,7 @@ A terminal-based AI agent that answers questions by exploring your filesystem, r
 | **Multi-provider** | Anthropic Claude (direct + Vertex AI), Google Gemini, OpenAI — switch mid-session with `/model` |
 | **Streaming** | Responses stream to the terminal as they're generated |
 | **Interactive TUI** | Textual-based terminal UI (light theme) with readline fallback |
-| **12+ tools** | Read files, search code, browse the web, edit files, run commands, ask clarifying questions, delegate to subagents, plus external MCP tools |
+| **15+ tools** | Read files, search code, browse the web, edit files, run commands, manage background jobs, drive interactive PTY sessions, ask clarifying questions, delegate to subagents, plus external MCP tools |
 | **Working directory tracking** | `cd` in one command persists to the next |
 | **Prompt caching** | System prompt and conversation prefix cached across Anthropic API calls |
 | **Token tracking** | Per-turn and session totals after each answer, cache hit stats |
@@ -137,7 +137,7 @@ llm-agent -t 60                              # 60-second command timeout
 
 ## Tools
 
-The agent has **12 tools** it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has **15 tools** it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
 
 ### Read-Only (no confirmation)
 
@@ -157,7 +157,20 @@ The agent has **12 tools** it can use autonomously. Read-only tools run without 
 |------|-------------|
 | `write_file` | Create or overwrite a file. Shows content preview, prompts `Apply? [Y/n]`. Creates parent directories automatically. |
 | `edit_file` | Targeted edit in an existing file. Three modes: **(1)** string match — `old_string` + `new_string` (must match uniquely, whitespace-normalised fuzzy fallback), **(2)** line range — `start_line` + `end_line` + `new_string`, **(3)** batch — `edits` array of multiple operations applied atomically. Shows diff preview. |
-| `run_command` | Execute a shell command. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. |
+| `run_command` | Execute a shell command. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. Supports `run_in_background: true` to start long-running commands without blocking. |
+
+### Background task inspection
+
+| Tool | Description |
+|------|-------------|
+| `check_task` | Inspect background tasks started by `run_command`. Pass `task_id` for PID, cwd, timestamps, runtime, and output. Pass `tail_lines` to show only the last N lines of output, or omit `task_id` to list all tasks. |
+
+### Interactive shell sessions
+
+| Tool | Description |
+|------|-------------|
+| `start_session` | Start a PTY-backed interactive command, return a session ID, and capture initial output. Use for REPLs and commands that need multiple stdin writes. Interactive sessions keep their own cwd. |
+| `write_stdin` | Send input to a PTY session, poll for new output with empty `chars`, or terminate the session with `close: true`. Non-empty writes and closes always prompt, even in yolo mode. |
 
 ### Interactive (no confirmation, always sequential)
 
@@ -178,7 +191,7 @@ The agent has **12 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.22.0"
+    __init__.py                # VERSION = "0.23.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
@@ -205,6 +218,9 @@ llm_agent/
         write_file.py          # SCHEMA + handle
         edit_file.py           # SCHEMA + handle
         run_command.py         # SCHEMA + handle + NEEDS_CONFIRM + DANGEROUS_PATTERNS
+        check_task.py          # SCHEMA + handle (background task polling)
+        start_session.py       # SCHEMA + handle (PTY session startup)
+        write_stdin.py         # SCHEMA + handle (PTY stdin writes/polling)
         delegate.py            # SCHEMA + handle (subagent delegation)
         ask_user.py            # SCHEMA + handle + NEEDS_SEQUENTIAL (user questions)
 .skills/                       # 10 bundled skills (see Skill System section)

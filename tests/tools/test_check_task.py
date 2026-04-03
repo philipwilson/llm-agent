@@ -21,6 +21,9 @@ class TestCheckTask:
         task_id = shell.start_background("echo check-output")
         time.sleep(0.5)
         result = handle({"task_id": task_id})
+        assert "Working directory:" in result
+        assert "PID:" in result
+        assert "Runtime:" in result
         assert "check-output" in result
         assert "completed" in result
         assert "Exit code: 0" in result
@@ -33,6 +36,7 @@ class TestCheckTask:
         assert "bg-1" in result
         assert "bg-2" in result
         assert "Background tasks:" in result
+        assert "pid" in result
 
     def test_running_task(self):
         task_id = shell.start_background("sleep 30")
@@ -47,3 +51,14 @@ class TestCheckTask:
         result = handle({"task_id": task_id})
         assert "failed" in result
         assert "fail-msg" in result
+
+    def test_tail_lines(self):
+        task_id = shell.start_background("printf 'one\\ntwo\\nthree\\n'")
+        time.sleep(0.5)
+        result = handle({"task_id": task_id, "tail_lines": 2})
+        assert "Output (last 2 lines):" in result
+        assert "\nOutput (last 2 lines):\ntwo\nthree" in result
+
+    def test_invalid_tail_lines(self):
+        result = handle({"task_id": "bg-1", "tail_lines": 0})
+        assert "tail_lines must be >= 1" in result

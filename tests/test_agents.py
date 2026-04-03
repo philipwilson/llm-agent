@@ -26,6 +26,8 @@ class TestBuiltinAgents:
         assert "write_file" in code["tools"]
         assert "run_command" in code["tools"]
         assert "check_task" in code["tools"]
+        assert "start_session" in code["tools"]
+        assert "write_stdin" in code["tools"]
 
     def test_no_delegate_in_builtins(self):
         for agent in BUILTIN_AGENTS.values():

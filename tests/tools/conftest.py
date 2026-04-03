@@ -10,16 +10,24 @@ from llm_agent.tools.base import shell, ShellState
 @pytest.fixture(autouse=True)
 def reset_shell_cwd(tmp_path):
     """Reset the global shell's cwd to a temp dir before each test."""
+    shell.stop_all()
     original_cwd = shell.cwd
     original_tasks = shell._tasks
     original_counter = shell._task_counter
+    original_sessions = shell._sessions
+    original_session_counter = shell._session_counter
     shell.cwd = str(tmp_path)
     shell._tasks = {}
     shell._task_counter = 0
+    shell._sessions = {}
+    shell._session_counter = 0
     yield tmp_path
+    shell.stop_all()
     shell.cwd = original_cwd
     shell._tasks = original_tasks
     shell._task_counter = original_counter
+    shell._sessions = original_sessions
+    shell._session_counter = original_session_counter
 
 
 @pytest.fixture

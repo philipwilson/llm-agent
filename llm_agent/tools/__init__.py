@@ -11,6 +11,8 @@ from llm_agent.tools import (
     edit_file,
     run_command,
     check_task,
+    start_session,
+    write_stdin,
     web_search,
     delegate,
     ask_user,
@@ -34,6 +36,8 @@ _TOOL_TIMEOUTS = {
     "edit_file": 30,
     "run_command": None,    # uses its own COMMAND_TIMEOUT
     "check_task": 30,
+    "start_session": 30,
+    "write_stdin": 30,
     "delegate": 300,        # subagents need time for multi-step work
     "ask_user": None,       # blocks on user input, no timeout
 }
@@ -52,6 +56,8 @@ _MODULES = [
     edit_file,
     run_command,
     check_task,
+    start_session,
+    write_stdin,
     web_search,
     delegate,
     ask_user,

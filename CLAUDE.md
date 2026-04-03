@@ -56,6 +56,8 @@ tests/
         conftest.py            — tool-specific fixtures (shell reset)
         test_run_command.py    — ShellState, background tasks, cwd tracking
         test_check_task.py     — background task polling
+        test_start_session.py  — PTY-backed interactive sessions
+        test_write_stdin.py    — PTY stdin writes, polling, close flow
         test_edit_file.py      — fuzzy matching, line ranges, batch edits
         test_read_file.py      — line ranges, offset/limit, error handling
         test_write_file.py     — create, overwrite, parent dirs, preview
@@ -178,6 +180,8 @@ llm_agent/
         edit_file.py    — SCHEMA + handle
         run_command.py  — SCHEMA + handle + NEEDS_CONFIRM (supports run_in_background)
         check_task.py   — SCHEMA + handle (poll background tasks)
+        start_session.py — SCHEMA + handle + NEEDS_CONFIRM (starts PTY session)
+        write_stdin.py  — SCHEMA + handle + NEEDS_CONFIRM + NEEDS_SEQUENTIAL (interactive PTY I/O)
         delegate.py     — SCHEMA + handle (subagent delegation)
         ask_user.py     — SCHEMA + handle + NEEDS_SEQUENTIAL (user questions)
 tests/                  — pytest test suite (see Testing section)
@@ -212,7 +216,7 @@ The key flow:
 
 ## Tools
 
-The model has thirteen tools. Read-only tools run without confirmation; mutating tools always require it.
+The model has fifteen tools. Read-only tools run without confirmation; mutating and interactive shell tools require confirmation.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
@@ -222,12 +226,16 @@ The model has thirteen tools. Read-only tools run without confirmation; mutating
 - **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Useful for understanding large files before diving in.
 - **`read_url`** — fetches a URL and returns cleaned content. HTML is converted to markdown; plain text, markdown, and JSON are returned as text. Returns title, final URL after safe redirects, content type, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns numbered results with titles, URLs, and snippets. Default 8 results.
-- **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status + output, or omit to list all tasks.
+- **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status, PID, cwd, timestamps, runtime, and output; pass `tail_lines` to show only the last N lines; or omit `task_id` to list all tasks.
 
 **Mutating (always require confirmation):**
 - **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
 - **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview.
-- **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. Supports `run_in_background: true` to start long-running commands without blocking — returns a task ID for polling via `check_task`.
+- **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. Supports `run_in_background: true` to start long-running commands without blocking — returns a task ID plus task metadata for inspection via `check_task`.
+
+**Interactive shell (always sequential; writes require confirmation):**
+- **`start_session`** — starts a PTY-backed interactive command and returns a session ID plus initial output. Use this for REPLs, database shells, or commands that need multiple stdin writes. Interactive sessions keep their own cwd; `cd` inside one does not update the agent's global working directory.
+- **`write_stdin`** — sends input to a PTY session started via `start_session`, polls for new output when `chars` is empty, or terminates the session with `close: true`. Non-empty writes and closes always prompt, even in yolo mode.
 
 **Interactive (always sequential):**
 - **`ask_user`** — asks the user a clarifying question. Supports free-text and multiple-choice. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.

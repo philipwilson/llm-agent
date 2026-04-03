@@ -1,5 +1,7 @@
 """Tests for run_command tool: shell state, background tasks, cwd tracking."""
 
+import shlex
+import sys
 import time
 
 import pytest
@@ -53,6 +55,10 @@ class TestBackgroundTasks:
         info = shell.get_task(task_id)
         assert info["status"] == "completed"
         assert info["exit_code"] == 0
+        assert info["pid"] > 0
+        assert info["cwd"] == str(shell.cwd)
+        assert info["duration_seconds"] >= 0
+        assert info["started_at"] is not None
         assert "background-output" in info["output"]
 
     def test_sequential_ids(self):
@@ -79,6 +85,19 @@ class TestBackgroundTasks:
         info = shell.get_task(task_id)
         assert info["status"] == "failed"
         assert info["exit_code"] == 1
+
+    def test_background_reads_stdout_and_stderr_concurrently(self):
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            "\"import sys; sys.stderr.write('x' * 200000); sys.stderr.flush(); print('done')\""
+        )
+        task_id = shell.start_background(command)
+        time.sleep(0.5)
+        info = shell.get_task(task_id)
+        assert info["status"] == "completed"
+        assert info["exit_code"] == 0
+        assert "done" in info["output"]
+        assert "x" in info["output"]
 
     def test_stop_all(self):
         task_id = shell.start_background("sleep 30")
@@ -109,6 +128,7 @@ class TestHandle:
         )
         assert "bg-" in result
         assert "check_task" in result
+        assert "pid" in result
 
     def test_handle_declined(self, declining_display):
         result = handle({"command": "echo hi"})

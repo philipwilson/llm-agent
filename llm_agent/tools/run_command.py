@@ -101,6 +101,11 @@ def handle(params, auto_approve=False):
     if confirm(command, description, auto_approve):
         if background:
             task_id = shell.start_background(command)
-            return f"Background task started: {task_id}\nUse check_task to poll for results."
+            info = shell.get_task(task_id)
+            return (
+                f"Background task started: {task_id} "
+                f"(pid {info['pid']}, cwd {info['cwd']})\n"
+                "Use check_task to inspect status and recent output."
+            )
         return shell.run(command)
     return "(user declined to run this command)"
