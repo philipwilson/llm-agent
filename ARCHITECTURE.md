@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.16.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.20.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -149,7 +149,7 @@ The agent has **12 tools** it can use autonomously. Read-only tools run without 
 | `glob_files` | Find files matching a glob pattern recursively. Supports `**` for recursive matching. Returns sorted relative paths capped at 200. |
 | `file_outline` | Show file structure (classes, functions, methods with line numbers) without reading full content. Supports Python, JS/TS, Go, Rust, Java, Ruby, C/C++. |
 | `read_url` | Fetch a web page, convert HTML to plain text. Returns title, final URL, and content truncated to `max_length` (default 10k chars). 1MB download cap. |
-| `web_search` | Search the web via DuckDuckGo HTML (no API key). Returns titles, URLs, and snippets. Default 8 results. |
+| `web_search` | Search the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns titles, URLs, and snippets. Default 8 results. |
 
 ### Mutating (always require confirmation)
 
@@ -178,7 +178,7 @@ The agent has **12 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.16.0"
+    __init__.py                # VERSION = "0.20.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry

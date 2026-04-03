@@ -180,10 +180,10 @@ class Session:
         return ["(conversation cleared)"]
 
     def _setup_delegate(self):
-        """Configure the delegate tool with available agents and a run callback."""
+        """Configure tools that need session-specific runtime context."""
         from llm_agent.agents import load_all_agents, run_subagent
         from llm_agent.tools import TOOL_REGISTRY
-        from llm_agent.tools import delegate
+        from llm_agent.tools import delegate, web_search
         from llm_agent.agent import invalidate_tool_cache
 
         agents = load_all_agents()
@@ -212,6 +212,10 @@ class Session:
                 self.auto_approve, thinking_level=self.thinking_level,
             )
         }
+        TOOL_REGISTRY["web_search"]["context"] = web_search.build_context(
+            self.client,
+            self.model,
+        )
 
     def _handle_model(self, text):
         """Handle /model command. Returns list of status messages."""

@@ -83,7 +83,7 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has twelve tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
+The agent has thirteen tools it can use autonomously. Read-only tools run without confirmation; mutating tools prompt before executing.
 
 **Read-only:**
 - **read_file** -- read file contents with line numbers, optional offset/limit
@@ -91,7 +91,7 @@ The agent has twelve tools it can use autonomously. Read-only tools run without 
 - **search_files** -- regex search over file contents (ripgrep, falls back to grep)
 - **glob_files** -- find files by glob pattern recursively (`**/*.py`, etc.)
 - **read_url** -- fetch a URL and return plain text content
-- **web_search** -- search the web via DuckDuckGo (no API key needed)
+- **web_search** -- search the web via provider-native search when available, with DuckDuckGo fallback
 
 **Mutating (require confirmation):**
 - **write_file** -- create or overwrite a file

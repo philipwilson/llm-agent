@@ -138,6 +138,13 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
         except SystemExit:
             return f"(error: cannot create {_provider(sub_model)} client for subagent '{agent_name}' — missing API key or SDK)"
 
+    if "web_search" in tool_registry:
+        from llm_agent.tools import web_search
+        tool_registry["web_search"] = {
+            **tool_registry["web_search"],
+            "context": web_search.build_context(sub_client, sub_model),
+        }
+
     # Pick the right turn function
     if _provider(sub_model) == "openai":
         from llm_agent.openai_agent import openai_agent_turn

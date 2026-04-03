@@ -3,6 +3,7 @@
 import pytest
 
 from llm_agent.session import Session
+from llm_agent.tools import TOOL_REGISTRY
 
 
 class FakeClient:
@@ -101,3 +102,10 @@ class TestSessionInit:
         assert session.auto_approve is False
         assert session.conversation == []
         assert session.last_response == ""
+
+    def test_web_search_context_is_configured(self, session):
+        context = TOOL_REGISTRY["web_search"].get("context")
+        assert context is not None
+        assert context["client"] is session.client
+        assert context["model"] == session.model
+        assert context["provider"] == "anthropic"
