@@ -9,6 +9,7 @@ from llm_agent import VERSION
 from llm_agent.display import get_display
 from llm_agent.formatting import red, yellow
 from llm_agent.skills import load_all_skills, render_skill, format_skill_list
+from llm_agent.tools.base import FileObservationStore
 
 
 class Session:
@@ -23,6 +24,7 @@ class Session:
         self.session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
         self.skills = load_all_skills()
         self.last_response = ""
+        self._file_observations = FileObservationStore()
 
         # Per-session system prompt (Phase 3)
         from llm_agent.agent import refresh_project_context
@@ -177,6 +179,7 @@ class Session:
         """Clear conversation and session usage. Returns list of status messages."""
         self.conversation = []
         self.session_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+        self._file_observations.clear()
         return ["(conversation cleared)"]
 
     def _setup_delegate(self):
@@ -212,6 +215,9 @@ class Session:
                 self.auto_approve, thinking_level=self.thinking_level,
             )
         }
+        file_context = {"file_observations": self._file_observations}
+        for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+            TOOL_REGISTRY[tool_name]["context"] = file_context
         TOOL_REGISTRY["web_search"]["context"] = web_search.build_context(
             self.client,
             self.model,
@@ -261,6 +267,7 @@ class Session:
         if new_provider != old_provider:
             self.client = make_client(new_model)
             self.conversation = []
+            self._file_observations.clear()
             messages.append(f"(switched to {new_model}, conversation cleared)")
         else:
             messages.append(f"(switched to {new_model})")

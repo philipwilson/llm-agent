@@ -3,7 +3,7 @@
 import os
 
 from llm_agent.formatting import bold, cyan
-from llm_agent.tools.base import _resolve
+from llm_agent.tools.base import _resolve, read_text_file
 
 SCHEMA = {
     "name": "read_file",
@@ -40,20 +40,26 @@ def log(params):
 LOG = log
 
 
-def handle(params):
+def handle(params, context=None):
     path = _resolve(params.get("path", ""))
     offset = max(params.get("offset", 1), 1)
     limit = params.get("limit", 200)
 
     try:
-        size = os.path.getsize(path)
-        with open(path, "r", errors="replace") as f:
-            lines = f.readlines()
+        file_info = read_text_file(path)
+        content = file_info["content"]
+        stat_result = file_info["stat"]
+        size = file_info["size"]
+        if context:
+            observations = context.get("file_observations")
+            if observations is not None:
+                observations.record_read(path, stat_result)
+        lines = content.splitlines()
         total = len(lines)
         selected = lines[offset - 1 : offset - 1 + limit]
         numbered = []
         for i, line in enumerate(selected, start=offset):
-            numbered.append(f"{i:6}\t{line.rstrip()}")
+            numbered.append(f"{i:6}\t{line}")
         header = f"[{path}: {total} lines, {size} bytes]"
         if offset > 1 or offset - 1 + limit < total:
             header += f" (showing lines {offset}-{min(offset - 1 + limit, total)})"

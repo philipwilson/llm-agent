@@ -31,7 +31,7 @@ BUILTIN_AGENTS = {
         "model": None,  # inherit from parent
         "tools": [
             "read_file", "list_directory", "search_files", "glob_files",
-            "read_url", "web_search", "write_file", "edit_file",
+            "read_url", "web_search", "write_file", "edit_file", "apply_patch",
             "run_command", "check_task", "start_session", "write_stdin",
         ],
         "system_prompt": None,  # inherit from parent
@@ -102,6 +102,7 @@ def load_all_agents():
 def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=None):
     """Run a subagent to completion and return its final text answer."""
     from llm_agent.tools import build_tool_set
+    from llm_agent.tools.base import FileObservationStore
 
     agents = load_all_agents()
     defn = agents.get(agent_name)
@@ -152,6 +153,13 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
             **tool_registry["web_search"],
             "context": web_search.build_context(sub_client, sub_model),
         }
+    file_context = {"file_observations": FileObservationStore()}
+    for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+        if tool_name in tool_registry:
+            tool_registry[tool_name] = {
+                **tool_registry[tool_name],
+                "context": file_context,
+            }
 
     # Pick the right turn function
     if _provider(sub_model) == "openai":

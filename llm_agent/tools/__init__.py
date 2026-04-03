@@ -9,6 +9,7 @@ from llm_agent.tools import (
     read_url,
     write_file,
     edit_file,
+    apply_patch,
     run_command,
     check_task,
     start_session,
@@ -34,6 +35,7 @@ _TOOL_TIMEOUTS = {
     "web_search": 30,       # has internal 15s timeout
     "write_file": 30,
     "edit_file": 30,
+    "apply_patch": 60,
     "run_command": None,    # uses its own COMMAND_TIMEOUT
     "check_task": 30,
     "start_session": 30,
@@ -54,6 +56,7 @@ _MODULES = [
     read_url,
     write_file,
     edit_file,
+    apply_patch,
     run_command,
     check_task,
     start_session,
@@ -112,12 +115,12 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
                 log_fn = entry.get("log")
                 if log_fn:
                     log_fn(params)
+                kwargs = {}
                 if entry.get("needs_confirm"):
-                    output = entry["handler"](params, auto_approve=auto_approve)
-                elif entry.get("context"):
-                    output = entry["handler"](params, context=entry["context"])
-                else:
-                    output = entry["handler"](params)
+                    kwargs["auto_approve"] = auto_approve
+                if entry.get("context"):
+                    kwargs["context"] = entry["context"]
+                output = entry["handler"](params, **kwargs)
             except Exception as e:
                 output = f"(error in tool '{name}': {e})"
         display.tool_result(len(output.splitlines()))

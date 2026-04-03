@@ -158,3 +158,29 @@ class TestDispatch:
         assert len(results) == 2
         # Should be parallel with auto_approve
         assert elapsed < 0.35
+
+    def test_confirm_tools_receive_context_and_auto_approve(self):
+        captured = {}
+
+        def tool_fn(p, auto_approve=False, context=None):
+            captured["auto_approve"] = auto_approve
+            captured["context"] = context
+            return "ok"
+
+        registry = {
+            "ctx": {
+                "handler": tool_fn,
+                "needs_confirm": True,
+                "context": {"value": 1},
+            }
+        }
+
+        results = dispatch_tool_calls(
+            [_make_tool_use("ctx", tool_id="t1")],
+            registry,
+            auto_approve=True,
+        )
+
+        assert results[0]["content"] == "ok"
+        assert captured["auto_approve"] is True
+        assert captured["context"] == {"value": 1}

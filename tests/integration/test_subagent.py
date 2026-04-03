@@ -148,6 +148,7 @@ class TestRunSubagent:
         assert "read_file" in tool_names
         assert "write_file" in tool_names
         assert "edit_file" in tool_names
+        assert "apply_patch" in tool_names
         assert "run_command" in tool_names
         assert "check_task" in tool_names
         assert "start_session" in tool_names

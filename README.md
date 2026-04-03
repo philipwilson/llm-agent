@@ -83,7 +83,7 @@ llm-agent -m gemini-pro --thinking high
 
 ## Tools
 
-The agent has fifteen tools it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
+The agent has sixteen tools it can use autonomously. Read-only tools run without confirmation; mutating and interactive shell tools prompt before executing.
 
 **Read-only:**
 - **read_file** -- read file contents with line numbers, optional offset/limit
@@ -95,8 +95,9 @@ The agent has fifteen tools it can use autonomously. Read-only tools run without
 - **check_task** -- inspect background tasks started by `run_command`, including recent output
 
 **Mutating (require confirmation):**
-- **write_file** -- create or overwrite a file
-- **edit_file** -- targeted find-and-replace in an existing file
+- **write_file** -- create or overwrite a file; overwriting an existing file requires a fresh `read_file` first, preserves existing encoding/newlines when possible, and rejects obvious omission placeholders
+- **edit_file** -- targeted find-and-replace in an existing file; requires a fresh `read_file` first, preserves existing encoding/newlines when possible, and rejects obvious omission placeholders
+- **apply_patch** -- apply a structured multi-file patch with add/update/delete/move blocks; existing-file changes require a fresh `read_file` first
 - **run_command** -- run an arbitrary shell command, optionally in the background
 
 **Interactive shell (require confirmation for writes):**

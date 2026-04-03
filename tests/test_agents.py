@@ -24,6 +24,7 @@ class TestBuiltinAgents:
         assert code["model"] is None  # inherits parent
         assert "read_file" in code["tools"]
         assert "write_file" in code["tools"]
+        assert "apply_patch" in code["tools"]
         assert "run_command" in code["tools"]
         assert "check_task" in code["tools"]
         assert "start_session" in code["tools"]

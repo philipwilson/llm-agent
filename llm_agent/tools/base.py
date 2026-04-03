@@ -1,8 +1,11 @@
 """Shared state and utilities for tool handlers."""
 
+import codecs
 import errno
+import locale
 import os
 import pty
+import re
 import select
 import signal
 import subprocess
@@ -15,6 +18,174 @@ from llm_agent.formatting import truncate
 
 DEFAULT_COMMAND_TIMEOUT = 30
 COMMAND_TIMEOUT = DEFAULT_COMMAND_TIMEOUT
+
+
+class FileObservationStore:
+    """Tracks the last observed stat snapshot for files read in a session."""
+
+    def __init__(self):
+        self._observations = {}
+
+    @staticmethod
+    def _normalize_path(path):
+        return os.path.abspath(path)
+
+    @staticmethod
+    def snapshot_stat(stat_result):
+        return {
+            "st_dev": stat_result.st_dev,
+            "st_ino": stat_result.st_ino,
+            "st_size": stat_result.st_size,
+            "st_mtime_ns": stat_result.st_mtime_ns,
+        }
+
+    @classmethod
+    def matches_snapshot(cls, snapshot, stat_result):
+        if snapshot is None:
+            return False
+        return snapshot == cls.snapshot_stat(stat_result)
+
+    def clear(self):
+        self._observations.clear()
+
+    def record_read(self, path, stat_result):
+        self._observations[self._normalize_path(path)] = self.snapshot_stat(stat_result)
+
+    def validate_fresh(self, path, stat_result, action):
+        snapshot = self._observations.get(self._normalize_path(path))
+        if snapshot is None:
+            return (
+                f"(error: must read {path} with read_file before you can {action} it)"
+            )
+        if not self.matches_snapshot(snapshot, stat_result):
+            return (
+                f"(error: {path} changed since it was last read; "
+                f"use read_file again before you {action} it)"
+            )
+        return None
+
+
+def _candidate_text_encodings(raw):
+    """Return likely encodings for a text file, ordered by confidence."""
+    if raw.startswith(codecs.BOM_UTF8):
+        return ["utf-8-sig"]
+    if raw.startswith(codecs.BOM_UTF32_BE) or raw.startswith(codecs.BOM_UTF32_LE):
+        return ["utf-32"]
+    if raw.startswith(codecs.BOM_UTF16_BE) or raw.startswith(codecs.BOM_UTF16_LE):
+        return ["utf-16"]
+
+    candidates = ["utf-8"]
+    preferred = locale.getpreferredencoding(False)
+    if preferred and preferred.lower() not in {c.lower() for c in candidates}:
+        candidates.append(preferred)
+    if "latin-1" not in {c.lower() for c in candidates}:
+        candidates.append("latin-1")
+    return candidates
+
+
+def detect_newline_style(text):
+    """Return the first newline sequence found in text, if any."""
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\n":
+            if i > 0 and text[i - 1] == "\r":
+                return "\r\n"
+            return "\n"
+        if ch == "\r":
+            if i + 1 < len(text) and text[i + 1] == "\n":
+                return "\r\n"
+            return "\r"
+        i += 1
+    return None
+
+
+def normalize_newlines(text, newline_style):
+    """Rewrite text to use the target newline style."""
+    if newline_style is None:
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", newline_style)
+
+
+def read_text_file(path):
+    """Read a text file with lightweight encoding detection and newline metadata."""
+    with open(path, "rb") as f:
+        raw = f.read()
+        stat_result = os.fstat(f.fileno())
+
+    last_error = None
+    for encoding in _candidate_text_encodings(raw):
+        try:
+            content = raw.decode(encoding)
+            return {
+                "content": content,
+                "encoding": encoding,
+                "newline_style": detect_newline_style(content),
+                "stat": stat_result,
+                "size": stat_result.st_size,
+            }
+        except UnicodeDecodeError as e:
+            last_error = e
+    raise UnicodeDecodeError(
+        getattr(last_error, "encoding", "unknown"),
+        getattr(last_error, "object", raw),
+        getattr(last_error, "start", 0),
+        getattr(last_error, "end", 1),
+        getattr(last_error, "reason", "unable to decode file"),
+    )
+
+
+def write_text_file(path, content, encoding):
+    """Write text back to disk using the requested encoding."""
+    with open(path, "wb") as f:
+        f.write(content.encode(encoding))
+
+
+def count_text_lines(text):
+    """Return a human-friendly line count for a text payload."""
+    if not text:
+        return 0
+    return len(text.splitlines())
+
+
+def describe_newline_style(newline_style):
+    """Return a short label for a newline convention."""
+    if newline_style == "\r\n":
+        return "CRLF"
+    if newline_style == "\r":
+        return "CR"
+    if newline_style == "\n":
+        return "LF"
+    return "none"
+
+
+def describe_text_format(encoding, newline_style):
+    """Return a compact 'encoding, newline' description."""
+    parts = []
+    if encoding:
+        parts.append(encoding)
+    parts.append(describe_newline_style(newline_style))
+    return ", ".join(parts)
+
+
+_OMISSION_PLACEHOLDER_PATTERNS = (
+    re.compile(r"\.\.\.\s*(existing|rest|remaining|unchanged|omitted)\b", re.IGNORECASE),
+    re.compile(r"\b(existing|rest of file|remaining|unchanged|omitted)\b.*\.\.\.", re.IGNORECASE),
+    re.compile(r"^[<\[].*\b(existing|rest|remaining|unchanged|omitted)\b.*[>\]]$", re.IGNORECASE),
+)
+
+
+def find_omission_placeholder(text):
+    """Detect obvious omission placeholders in model-generated file content."""
+    for line in text.splitlines() or [text]:
+        candidate = line.strip()
+        if not candidate:
+            continue
+        if any(pattern.search(candidate) for pattern in _OMISSION_PLACEHOLDER_PATTERNS):
+            if len(candidate) > 120:
+                candidate = candidate[:117] + "..."
+            return candidate
+    return None
 
 
 class BackgroundTask:

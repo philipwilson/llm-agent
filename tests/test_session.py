@@ -4,6 +4,7 @@ import pytest
 
 from llm_agent.session import Session
 from llm_agent.tools import TOOL_REGISTRY
+from llm_agent.tools.base import FileObservationStore
 
 
 class FakeClient:
@@ -122,3 +123,15 @@ class TestSessionInit:
         assert context["client"] is session.client
         assert context["model"] == session.model
         assert context["provider"] == "anthropic"
+
+    def test_file_tool_contexts_are_configured(self, session):
+        for tool_name in ("read_file", "edit_file", "write_file", "apply_patch"):
+            context = TOOL_REGISTRY[tool_name].get("context")
+            assert context is not None
+            assert isinstance(context["file_observations"], FileObservationStore)
+            assert context["file_observations"] is session._file_observations
+
+    def test_clear_resets_file_observations(self, session):
+        session._file_observations._observations["/tmp/example"] = {"st_size": 1}
+        session.clear()
+        assert session._file_observations._observations == {}

@@ -1,9 +1,21 @@
 """edit_file tool: targeted find-and-replace in an existing file."""
 
+import difflib
+import os
 import re
 
 from llm_agent.formatting import bold, cyan, dim, red, green
-from llm_agent.tools.base import _resolve, confirm_edit
+from llm_agent.tools.base import (
+    _resolve,
+    count_text_lines,
+    confirm_edit,
+    describe_text_format,
+    FileObservationStore,
+    find_omission_placeholder,
+    normalize_newlines,
+    read_text_file,
+    write_text_file,
+)
 
 
 SCHEMA = {
@@ -120,6 +132,113 @@ def _fuzzy_find(content, old_string):
     return (start, end)
 
 
+def _line_number_for_offset(content, offset):
+    line_entries = content.splitlines(keepends=True)
+    if not line_entries:
+        return 1
+
+    cursor = 0
+    for index, line in enumerate(line_entries, start=1):
+        next_cursor = cursor + len(line)
+        if offset < next_cursor:
+            return index
+        cursor = next_cursor
+    return len(line_entries)
+
+
+def _format_line_range(start_line, end_line):
+    if start_line == end_line:
+        return f"line {start_line}"
+    return f"lines {start_line}-{end_line}"
+
+
+def _trim_excerpt(text, max_chars=80):
+    excerpt = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    excerpt = excerpt.replace("\n", "\\n")
+    if len(excerpt) <= max_chars:
+        return excerpt
+    return excerpt[:max_chars - 3] + "..."
+
+
+def _find_close_match_windows(content, old_string, max_results=3):
+    normalized_old = _normalize_ws(old_string).strip()
+    if not normalized_old:
+        return []
+
+    content_lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if content_lines and content_lines[-1] == "":
+        content_lines = content_lines[:-1]
+    if not content_lines:
+        return []
+
+    target_lines = max(1, old_string.replace("\r\n", "\n").replace("\r", "\n").count("\n") + 1)
+    window_sizes = []
+    for size in (target_lines - 1, target_lines, target_lines + 1):
+        if size >= 1 and size not in window_sizes:
+            window_sizes.append(size)
+
+    candidates = []
+    seen_ranges = set()
+    for window_size in window_sizes:
+        if window_size > len(content_lines):
+            continue
+        for start in range(0, len(content_lines) - window_size + 1):
+            end = start + window_size
+            snippet = "\n".join(content_lines[start:end])
+            score = difflib.SequenceMatcher(
+                None,
+                normalized_old,
+                _normalize_ws(snippet).strip(),
+            ).ratio()
+            if score < 0.55:
+                continue
+            line_range = (start + 1, end)
+            if line_range in seen_ranges:
+                continue
+            seen_ranges.add(line_range)
+            candidates.append((score, start + 1, end, snippet))
+
+    candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
+    return candidates[:max_results]
+
+
+def _format_not_found_error(content, old_string):
+    message = "old_string not found"
+    close_matches = _find_close_match_windows(content, old_string)
+    if close_matches:
+        rendered_matches = "; ".join(
+            f"{_format_line_range(start_line, end_line)}: '{_trim_excerpt(snippet)}'"
+            for _, start_line, end_line, snippet in close_matches
+        )
+        message += f". Closest matches: {rendered_matches}"
+    message += ". Re-read the file and copy the exact text, or use start_line/end_line or apply_patch."
+    return message
+
+
+def _format_ambiguous_match_error(content, old_string, count):
+    matches = []
+    start = 0
+    while len(matches) < 3:
+        position = content.find(old_string, start)
+        if position == -1:
+            break
+        end = position + len(old_string)
+        start_line = _line_number_for_offset(content, position)
+        end_line = _line_number_for_offset(content, max(position, end - 1))
+        matches.append(_format_line_range(start_line, end_line))
+        start = position + 1
+
+    message = f"old_string matches {count} locations, must be unique"
+    if matches:
+        extra = count - len(matches)
+        rendered_matches = ", ".join(matches)
+        if extra > 0:
+            rendered_matches += f", +{extra} more"
+        message += f". Matches at {rendered_matches}"
+    message += ". Add more surrounding context, use start_line/end_line, or use apply_patch."
+    return message
+
+
 # ---------------------------------------------------------------------------
 # Single edit validation and positioning
 # ---------------------------------------------------------------------------
@@ -144,21 +263,27 @@ def _validate_single_edit(edit, content, lines):
         return None, None, None, None, False, "must provide either old_string or start_line+end_line"
 
     if has_lines:
+        line_entries = content.splitlines(keepends=True)
         if start_line is None or end_line is None:
             return None, None, None, None, False, "both start_line and end_line are required"
         if start_line < 1:
             return None, None, None, None, False, f"start_line must be >= 1, got {start_line}"
         if end_line < start_line:
             return None, None, None, None, False, f"end_line ({end_line}) must be >= start_line ({start_line})"
-        if end_line > len(lines):
-            return None, None, None, None, False, f"end_line ({end_line}) exceeds file length ({len(lines)} lines)"
+        if end_line > len(line_entries):
+            return (
+                None,
+                None,
+                None,
+                None,
+                False,
+                f"end_line ({end_line}) exceeds file length ({len(line_entries)} lines); "
+                "use read_file to confirm the current line numbers",
+            )
 
-        # Calculate byte offsets for the line range
-        offset = sum(len(lines[i]) + 1 for i in range(start_line - 1))
-        end_offset = sum(len(lines[i]) + 1 for i in range(end_line))
-        # Handle file not ending with newline
-        if not content.endswith("\n"):
-            end_offset = min(end_offset, len(content))
+        # Calculate offsets against the decoded text while preserving native line endings.
+        offset = sum(len(line_entries[i]) for i in range(start_line - 1))
+        end_offset = sum(len(line_entries[i]) for i in range(end_line))
         old_text = content[offset:end_offset]
         return old_text, new_string, offset, end_offset, False, None
 
@@ -168,12 +293,12 @@ def _validate_single_edit(edit, content, lines):
         # Try fuzzy match
         result = _fuzzy_find(content, old_string)
         if result is None:
-            return None, None, None, None, False, "old_string not found"
+            return None, None, None, None, False, _format_not_found_error(content, old_string)
         start, end = result
         old_text = content[start:end]
         return old_text, new_string, start, end, True, None
     if count > 1:
-        return None, None, None, None, False, f"old_string matches {count} locations, must be unique"
+        return None, None, None, None, False, _format_ambiguous_match_error(content, old_string, count)
 
     pos = content.index(old_string)
     return old_string, new_string, pos, pos + len(old_string), False, None
@@ -196,31 +321,77 @@ def _build_preview(path, edits_info, header_suffix=""):
     return preview
 
 
+def _summarize_edits(validated):
+    old_lines = sum(count_text_lines(old_text) for old_text, _, _, _, _ in validated)
+    new_lines = sum(count_text_lines(new_text or "") for _, new_text, _, _, _ in validated)
+    return {
+        "edit_count": len(validated),
+        "old_lines": old_lines,
+        "new_lines": new_lines,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main handler
 # ---------------------------------------------------------------------------
 
-def handle(params, auto_approve=False):
+def handle(params, auto_approve=False, context=None):
     path = _resolve(params.get("path", ""))
 
     try:
-        with open(path, "r") as f:
-            content = f.read()
+        file_info = read_text_file(path)
     except Exception as e:
         return f"(error reading {path}: {e})"
 
-    lines = content.splitlines()
+    content = file_info["content"]
+    stat_result = file_info["stat"]
+    newline_style = file_info["newline_style"]
+    encoding = file_info["encoding"]
+
+    if context:
+        observations = context.get("file_observations")
+        if observations is not None:
+            freshness_error = observations.validate_fresh(path, stat_result, "edit")
+            if freshness_error:
+                return freshness_error
+
+    initial_snapshot = FileObservationStore.snapshot_stat(stat_result)
+    lines = content.splitlines(keepends=True)
     edits_param = params.get("edits")
 
     # Build list of edit operations
     if edits_param:
-        ops = edits_param
+        ops = [
+            {
+                **op,
+                **(
+                    {"old_string": normalize_newlines(op["old_string"], newline_style)}
+                    if op.get("old_string") is not None else {}
+                ),
+                "new_string": normalize_newlines(op.get("new_string", ""), newline_style),
+            }
+            for op in edits_param
+        ]
     else:
-        ops = [params]
+        ops = [{
+            **params,
+            **(
+                {"old_string": normalize_newlines(params["old_string"], newline_style)}
+                if params.get("old_string") is not None else {}
+            ),
+            "new_string": normalize_newlines(params.get("new_string", ""), newline_style),
+        }]
 
     # Validate all edits first
     validated = []
     for i, op in enumerate(ops):
+        placeholder = find_omission_placeholder(op.get("new_string", ""))
+        if placeholder:
+            prefix = f"edit {i + 1}: " if edits_param else ""
+            return (
+                f"(error: {prefix}new_string appears to contain an omission placeholder; "
+                f"replace it with the full text instead: {placeholder})"
+            )
         old_text, new_text, start, end, fuzzy, error = _validate_single_edit(op, content, lines)
         if error:
             prefix = f"edit {i + 1}: " if edits_param else ""
@@ -241,6 +412,15 @@ def handle(params, auto_approve=False):
         header = f" (lines {params['start_line']}-{params['end_line']})"
     preview_info = [(old_text, new_text, fuzzy) for old_text, new_text, _, _, fuzzy in validated]
     preview = _build_preview(path, preview_info, header)
+    summary = _summarize_edits(validated)
+    preview.insert(
+        1,
+        f"  {dim(f'summary: {summary['edit_count']} edits, {summary['old_lines']} lines -> {summary['new_lines']} lines')}",
+    )
+    preview.insert(
+        2,
+        f"  {dim(f'format: {describe_text_format(encoding, newline_style)}')}",
+    )
 
     # Confirm
     if auto_approve:
@@ -255,10 +435,28 @@ def handle(params, auto_approve=False):
         result = result[:start] + (new_text or "") + result[end:]
 
     try:
-        with open(path, "w") as f:
-            f.write(result)
+        try:
+            current_stat = os.stat(path)
+        except FileNotFoundError:
+            return (
+                f"(error: {path} changed while waiting for confirmation; "
+                "use read_file again before editing)"
+            )
+        if not FileObservationStore.matches_snapshot(initial_snapshot, current_stat):
+            return (
+                f"(error: {path} changed while waiting for confirmation; "
+                "use read_file again before editing)"
+            )
+        write_text_file(path, result, encoding)
         if edits_param:
-            return f"(applied {len(validated)} edits to {path})"
-        return f"(edited {path})"
+            return (
+                f"(applied {summary['edit_count']} edits to {path}; "
+                f"lines={summary['old_lines']}->{summary['new_lines']}; "
+                f"format={describe_text_format(encoding, newline_style)})"
+            )
+        return (
+            f"(edited {path}; lines={summary['old_lines']}->{summary['new_lines']}; "
+            f"format={describe_text_format(encoding, newline_style)})"
+        )
     except Exception as e:
         return f"(error writing {path}: {e})"

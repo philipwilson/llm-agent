@@ -5,7 +5,7 @@ import os
 import pytest
 
 from llm_agent.tools.read_file import handle
-from llm_agent.tools.base import shell
+from llm_agent.tools.base import FileObservationStore, shell
 
 
 class TestReadFile:
@@ -78,3 +78,23 @@ class TestReadFile:
         f.write_text("absolute\n")
         result = handle({"path": str(f)})
         assert "absolute" in result
+
+    def test_records_file_observation_in_context(self, tmp_path):
+        f = tmp_path / "tracked.txt"
+        f.write_text("tracked\n")
+        shell.cwd = str(tmp_path)
+        store = FileObservationStore()
+
+        handle({"path": "tracked.txt"}, context={"file_observations": store})
+
+        stat_result = f.stat()
+        assert store.validate_fresh(str(f), stat_result, "edit") is None
+
+    def test_reads_latin1_text(self, tmp_path):
+        f = tmp_path / "latin1.txt"
+        f.write_bytes("café\n".encode("latin-1"))
+        shell.cwd = str(tmp_path)
+
+        result = handle({"path": "latin1.txt"})
+
+        assert "café" in result

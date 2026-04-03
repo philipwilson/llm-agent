@@ -59,6 +59,7 @@ tests/
         test_start_session.py  — PTY-backed interactive sessions
         test_write_stdin.py    — PTY stdin writes, polling, close flow
         test_edit_file.py      — fuzzy matching, line ranges, batch edits
+        test_apply_patch.py    — structured multi-file patch grammar and application
         test_read_file.py      — line ranges, offset/limit, error handling
         test_write_file.py     — create, overwrite, parent dirs, preview
         test_list_directory.py — entries, hidden files, sizes, symlinks
@@ -178,6 +179,7 @@ llm_agent/
         web_search.py   — SCHEMA + handle
         write_file.py   — SCHEMA + handle
         edit_file.py    — SCHEMA + handle
+        apply_patch.py  — SCHEMA + handle + NEEDS_CONFIRM + NEEDS_SEQUENTIAL
         run_command.py  — SCHEMA + handle + NEEDS_CONFIRM (supports run_in_background)
         check_task.py   — SCHEMA + handle (poll background tasks)
         start_session.py — SCHEMA + handle + NEEDS_CONFIRM (starts PTY session)
@@ -216,7 +218,7 @@ The key flow:
 
 ## Tools
 
-The model has fifteen tools. Read-only tools run without confirmation; mutating and interactive shell tools require confirmation.
+The model has sixteen tools. Read-only tools run without confirmation; mutating and interactive shell tools require confirmation.
 
 **Read-only (no confirmation):**
 - **`read_file`** — reads file contents with line numbers, supports `offset`/`limit` for paging. Reports total line count and file size.
@@ -229,8 +231,9 @@ The model has fifteen tools. Read-only tools run without confirmation; mutating 
 - **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status, PID, cwd, timestamps, runtime, and output; pass `tail_lines` to show only the last N lines; or omit `task_id` to list all tasks.
 
 **Mutating (always require confirmation):**
-- **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically.
-- **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview.
+- **`write_file`** — creates or overwrites a file. Shows a content preview and prompts `Apply? [Y/n]`. Creates parent directories automatically. Overwriting an existing file requires a fresh `read_file` in the current session; if the file changed after it was read, the overwrite is rejected until it is read again. Existing-file overwrites preserve encoding and newline style when possible, surface format metadata in the preview/result, and reject obvious omission placeholders such as `... existing code ...`.
+- **`edit_file`** — targeted edit in an existing file. Three modes: (1) **string match** — `old_string` + `new_string`, must match uniquely (whitespace-normalized fuzzy match used as fallback), (2) **line range** — `start_line` + `end_line` + `new_string` to replace lines by number (1-based, inclusive), (3) **batch** — `edits` array of multiple operations applied atomically. Shows a `-`/`+` diff preview. Requires a fresh `read_file` in the current session, rejects stale files, preserves existing encoding/newlines when possible, surfaces summary metadata in the preview/result, and rejects obvious omission placeholders.
+- **`apply_patch`** — structured multi-file mutation tool using a constrained grammar with `*** Begin Patch` / `*** End Patch`, `Add File`, `Delete File`, `Update File`, and optional `Move to` blocks. Existing-file changes require a fresh `read_file` in the current session, reuse the same stale-file checks as other mutation tools, and show one confirmation preview for the whole patch.
 - **`run_command`** — arbitrary shell command execution. Prompts `Run? [Y/n]`. In yolo mode (`-y`), auto-approves unless the command matches dangerous patterns. Supports `run_in_background: true` to start long-running commands without blocking — returns a task ID plus task metadata for inspection via `check_task`.
 
 **Interactive shell (always sequential; writes require confirmation):**
