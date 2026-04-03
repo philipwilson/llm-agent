@@ -219,7 +219,7 @@ The model has thirteen tools. Read-only tools run without confirmation; mutating
 - **`search_files`** — regex search over file contents using ripgrep (falls back to grep). Supports glob filtering and result cap.
 - **`glob_files`** — finds files matching a glob pattern recursively using Python's `glob.glob()`. Supports `**` for recursive matching. Returns sorted relative paths, capped at 200 results by default.
 - **`file_outline`** — shows the structure of a file (classes, functions, methods with line numbers) without reading the full content. Uses regex-based parsing for Python, JavaScript/TypeScript, Go, Rust, Java, Ruby, C/C++. Useful for understanding large files before diving in.
-- **`read_url`** — fetches a web page via curl, converts HTML to plain text via lynx/w3m (regex fallback). Returns title, final URL, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
+- **`read_url`** — fetches a URL and returns cleaned content. HTML is converted to markdown; plain text, markdown, and JSON are returned as text. Returns title, final URL after safe redirects, content type, and content truncated to `max_length` (default 10k chars). http/https only, 1MB download cap.
 - **`web_search`** — searches the web via provider-native search when available (Anthropic, OpenAI, Gemini), with DuckDuckGo HTML fallback. Returns numbered results with titles, URLs, and snippets. Default 8 results.
 - **`check_task`** — polls background tasks started via `run_command` with `run_in_background: true`. Pass a `task_id` for status + output, or omit to list all tasks.
 

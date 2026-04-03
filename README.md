@@ -90,7 +90,7 @@ The agent has thirteen tools it can use autonomously. Read-only tools run withou
 - **list_directory** -- list directory entries with types and sizes
 - **search_files** -- regex search over file contents (ripgrep, falls back to grep)
 - **glob_files** -- find files by glob pattern recursively (`**/*.py`, etc.)
-- **read_url** -- fetch a URL and return plain text content
+- **read_url** -- fetch a URL and return cleaned markdown/text content
 - **web_search** -- search the web via provider-native search when available, with DuckDuckGo fallback
 
 **Mutating (require confirmation):**
