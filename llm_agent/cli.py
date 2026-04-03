@@ -36,6 +36,7 @@ MODELS = {
     "qwen3": "ollama:qwen3.5:122b",
     "qwen3-cloud": "ollama:qwen3.5:cloud",
     "qwen3-coder": "ollama:qwen3.5:35b-a3b-coding-nvfp4",
+    "gemma4-31b": "ollama:gemma4:31b",
     "nemotron-nano": "ollama:nemotron-3-nano:latest",
 }
 DEFAULT_MODEL = "sonnet"

@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.21.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.22.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -178,7 +178,7 @@ The agent has **12 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.21.0"
+    __init__.py                # VERSION = "0.22.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry

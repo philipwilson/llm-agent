@@ -49,6 +49,11 @@ MODEL_ALIASES = {
     "gpt-5.2": "gpt-5.2",
     "o3": "o3",
     "o4-mini": "o4-mini",
+    "qwen3": "ollama:qwen3.5:122b",
+    "qwen3-cloud": "ollama:qwen3.5:cloud",
+    "qwen3-coder": "ollama:qwen3.5:35b-a3b-coding-nvfp4",
+    "gemma4-31b": "ollama:gemma4:31b",
+    "nemotron-nano": "ollama:nemotron-3-nano:latest",
 }
 
 
@@ -125,6 +130,8 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     # Create a separate client if the provider differs
     sub_client = client
     def _provider(m):
+        if m.startswith("ollama:"):
+            return "ollama"
         if m.startswith("gemini-"):
             return "gemini"
         if m in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini"):
@@ -152,6 +159,9 @@ def run_subagent(agent_name, task, client, model, auto_approve, thinking_level=N
     elif _provider(sub_model) == "gemini":
         from llm_agent.gemini_agent import gemini_agent_turn
         turn_fn = gemini_agent_turn
+    elif _provider(sub_model) == "ollama":
+        from llm_agent.ollama_agent import ollama_agent_turn
+        turn_fn = ollama_agent_turn
     else:
         from llm_agent.agent import agent_turn
         turn_fn = agent_turn

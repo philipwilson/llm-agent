@@ -48,6 +48,19 @@ class TestHandleCommand:
         messages, _ = result
         assert any("unknown" in m for m in messages)
 
+    def test_model_switches_to_gemma4_ollama_alias(self, session, monkeypatch):
+        fake_client = FakeClient()
+        monkeypatch.setattr("llm_agent.cli.make_client", lambda model: fake_client)
+        session.conversation = [{"role": "user", "content": "keep?"}]
+
+        result = session.handle_command("/model gemma4-31b")
+        messages, _ = result
+
+        assert session.model == "ollama:gemma4:31b"
+        assert session.client is fake_client
+        assert session.conversation == []
+        assert any("ollama:gemma4:31b" in m for m in messages)
+
     def test_thinking_show(self, session):
         result = session.handle_command("/thinking")
         messages, _ = result

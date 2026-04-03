@@ -5,6 +5,7 @@ import os
 import pytest
 
 from llm_agent.cli import (
+    MODELS,
     estimate_tokens,
     _is_tool_result_message,
     is_gemini_model,
@@ -69,6 +70,9 @@ class TestIsToolResultMessage:
 
 
 class TestModelDetection:
+    def test_gemma4_alias_maps_to_ollama(self):
+        assert MODELS["gemma4-31b"] == "ollama:gemma4:31b"
+
     @pytest.mark.parametrize("model", [
         "gemini-2.5-flash", "gemini-3.1-pro-preview",
     ])
@@ -84,7 +88,9 @@ class TestModelDetection:
         assert not is_gemini_model(model)
 
     @pytest.mark.parametrize("model", [
-        "ollama:qwen3.5:122b", "ollama:mistral", "ollama:llama3.2", "ollama:nemotron-3-nano:latest", "ollama:qwen3.5:35b-a3b-coding-nvfp4",
+        "ollama:qwen3.5:122b", "ollama:mistral", "ollama:llama3.2",
+        "ollama:nemotron-3-nano:latest", "ollama:qwen3.5:35b-a3b-coding-nvfp4",
+        "ollama:gemma4:31b",
     ])
     def test_ollama_models(self, model):
         assert is_ollama_model(model)

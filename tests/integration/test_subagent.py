@@ -185,6 +185,39 @@ class TestRunSubagent:
         run_subagent("code", "fix it", FakeClient(), "claude-sonnet-4-6", False)
         assert captured["model"] == "claude-sonnet-4-6"
 
+    def test_custom_agent_ollama_alias_uses_ollama_turn(self, monkeypatch):
+        """Custom agent aliases that resolve to ollama:* should use ollama_agent_turn."""
+        captured = {}
+        local_client = FakeClient()
+
+        monkeypatch.setattr(
+            "llm_agent.agents.load_all_agents",
+            lambda: {
+                "local": {
+                    "name": "local",
+                    "description": "Local ollama agent",
+                    "model": "gemma4-31b",
+                    "tools": ["read_file"],
+                }
+            },
+        )
+        monkeypatch.setattr("llm_agent.cli.make_client", lambda model: local_client)
+
+        def capturing_turn(client, model, messages, auto_approve,
+                           usage_totals=None, tools=None, tool_registry=None,
+                           system_prompt=None, **kwargs):
+            captured["client"] = client
+            captured["model"] = model
+            messages.append({"role": "assistant", "content": "done"})
+            return messages, True
+
+        monkeypatch.setattr("llm_agent.ollama_agent.ollama_agent_turn", capturing_turn)
+
+        run_subagent("local", "run locally", FakeClient(), "claude-sonnet-4-6", False)
+
+        assert captured["client"] is local_client
+        assert captured["model"] == "ollama:gemma4:31b"
+
     def test_streaming_suppressed(self, mock_display, monkeypatch):
         """Subagent should suppress streaming to avoid garbled output."""
         streaming_states = []

@@ -119,6 +119,7 @@ llm-agent -m o4-mini
 llm-agent -m qwen3                                # Ollama: qwen3.5:122b
 llm-agent -m qwen3-cloud                          # Ollama: qwen3.5:cloud
 llm-agent -m qwen3-coder                          # Ollama: qwen3.5:35b-a3b-coding-nvfp4
+llm-agent -m gemma4-31b                           # Ollama: gemma4:31b
 llm-agent -m nemotron-nano                        # Ollama: nemotron-3-nano:latest
 llm-agent -m ollama:llama3.2                      # Ollama: any model by name
 llm-agent -m ollama:deepseek-coder-v2:16b-lite-instruct-q4_0  # Ollama: with quantization tag
@@ -454,7 +455,7 @@ Gemini model aliases: `gemini-flash` → `gemini-2.5-flash`, `gemini-pro` → `g
 
 OpenAI model aliases pass through directly: `gpt-4o`, `gpt-4o-mini`, `gpt-5.2`, `o3`, `o4-mini`.
 
-Ollama models use `ollama:` prefix: `ollama:qwen3.5:122b`, `ollama:mistral`, etc. Aliases: `qwen3` → `ollama:qwen3.5:122b`, `qwen3-cloud` → `ollama:qwen3.5:cloud`, `qwen3-coder` → `ollama:qwen3.5:35b-a3b-coding-nvfp4`, `nemotron-nano` → `ollama:nemotron-3-nano:latest`.
+Ollama models use `ollama:` prefix: `ollama:qwen3.5:122b`, `ollama:mistral`, etc. Aliases: `qwen3` → `ollama:qwen3.5:122b`, `qwen3-cloud` → `ollama:qwen3.5:cloud`, `qwen3-coder` → `ollama:qwen3.5:35b-a3b-coding-nvfp4`, `gemma4-31b` → `ollama:gemma4:31b`, `nemotron-nano` → `ollama:nemotron-3-nano:latest`.
 
 ## Provider Architecture
 
