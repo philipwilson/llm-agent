@@ -4,7 +4,12 @@ import time
 
 import pytest
 
-from llm_agent.agents import BackgroundSubagentStore, run_subagent, BUILTIN_AGENTS
+from llm_agent.agents import (
+    BUILTIN_AGENTS,
+    BackgroundSubagentStore,
+    DEFAULT_SUBAGENT_MAX_STEPS,
+    run_subagent,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -79,9 +84,12 @@ class TestRunSubagent:
     def test_step_limit(self, monkeypatch):
         """Subagent hitting step limit should stop gracefully."""
         # Return not-done forever
+        calls = {"count": 0}
+
         def infinite_turn(client, model, messages, auto_approve,
                           usage_totals=None, tools=None, tool_registry=None,
                           system_prompt=None, **kwargs):
+            calls["count"] += 1
             messages.append({"role": "assistant", "content": [
                 {"type": "tool_use", "id": "t1", "name": "read_file", "input": {}},
             ]})
@@ -92,6 +100,7 @@ class TestRunSubagent:
         result = run_subagent("explore", "infinite loop", FakeClient(), "claude-sonnet-4-6", False)
         # Should return something (the last assistant message or "no text output")
         assert isinstance(result, str)
+        assert calls["count"] == DEFAULT_SUBAGENT_MAX_STEPS
 
     def test_no_text_output(self, monkeypatch):
         """Subagent produces no text blocks — should return a fallback message."""
@@ -302,6 +311,7 @@ class TestRunSubagent:
         assert result["model"] == "claude-haiku-4-5"
         assert result["status"] == "completed"
         assert result["steps"] == 1
+        assert result["max_steps"] == DEFAULT_SUBAGENT_MAX_STEPS
         assert result["usage"]["input"] == 100
         assert result["result"] == "The answer is 42"
 
@@ -314,9 +324,45 @@ class TestRunSubagent:
 
         run_subagent("explore", "read and summarize", FakeClient(), "claude-sonnet-4-6", False)
 
-        assert any("subagent starting: model claude-haiku-4-5" in status for status in mock_display.statuses)
+        assert any(
+            f"subagent starting: model claude-haiku-4-5, max {DEFAULT_SUBAGENT_MAX_STEPS} steps"
+            in status
+            for status in mock_display.statuses
+        )
         assert any("subagent progress: step 1" in status for status in mock_display.statuses)
         assert any("subagent done: 2 steps" in status for status in mock_display.statuses)
+
+    def test_custom_agent_max_steps_is_respected(self, mock_display, monkeypatch):
+        calls = {"count": 0}
+
+        def infinite_turn(client, model, messages, auto_approve,
+                          usage_totals=None, tools=None, tool_registry=None,
+                          system_prompt=None, **kwargs):
+            calls["count"] += 1
+            messages.append({"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {}},
+            ]})
+            return messages, False
+
+        monkeypatch.setattr(
+            "llm_agent.agents.load_all_agents",
+            lambda: {
+                "limited": {
+                    "name": "limited",
+                    "description": "Limited agent",
+                    "model": "haiku",
+                    "max_steps": 3,
+                    "tools": ["read_file"],
+                }
+            },
+        )
+        monkeypatch.setattr("llm_agent.agent.agent_turn", infinite_turn)
+
+        result = run_subagent("limited", "loop", FakeClient(), "claude-sonnet-4-6", False)
+
+        assert isinstance(result, str)
+        assert calls["count"] == 3
+        assert any("step limit of 3" in error for error in mock_display.errors)
 
     def test_background_subagent_store_runs_task(self, monkeypatch):
         fake_turn = _make_turn_fn([
@@ -346,4 +392,5 @@ class TestRunSubagent:
 
         assert latest["status"] == "completed"
         assert latest["model"] == "claude-haiku-4-5"
+        assert latest["max_steps"] == DEFAULT_SUBAGENT_MAX_STEPS
         assert latest["result"] == "background result"

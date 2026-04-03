@@ -10,7 +10,7 @@ from llm_agent.display import get_display
 from llm_agent.formatting import red, yellow
 from llm_agent.skills import load_all_skills, render_skill, format_skill_list
 from llm_agent.tools.base import FileObservationStore
-from llm_agent.agents import BackgroundSubagentStore
+from llm_agent.agents import BackgroundSubagentStore, DEFAULT_SUBAGENT_MAX_STEPS
 
 
 class Session:
@@ -198,7 +198,10 @@ class Session:
         for name, defn in sorted(agents.items()):
             desc = defn.get("description", "")
             agent_model = defn.get("model") or "(inherits parent)"
-            agent_lines.append(f"  - {name}: {desc} [model: {agent_model}]")
+            agent_max_steps = defn.get("max_steps", defn.get("max_turns", DEFAULT_SUBAGENT_MAX_STEPS))
+            agent_lines.append(
+                f"  - {name}: {desc} [model: {agent_model}, max_steps: {agent_max_steps}]"
+            )
         agent_list = "\n".join(agent_lines)
 
         delegate.SCHEMA["description"] = (

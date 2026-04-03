@@ -166,6 +166,13 @@ class TestSessionInit:
         assert captured["args"]["model_override"] == "haiku"
         assert captured["args"]["return_metadata"] is True
 
+    def test_delegate_description_lists_max_steps(self, session):
+        from llm_agent.tools import delegate
+
+        description = delegate.SCHEMA["description"]
+        assert "max_steps" in description
+        assert "explore" in description
+
     def test_check_task_context_includes_subagent_store(self, session):
         context = TOOL_REGISTRY["check_task"].get("context")
         assert context is not None

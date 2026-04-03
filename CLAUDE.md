@@ -250,7 +250,7 @@ The model has eighteen tools. Read-only tools run without confirmation; mutating
 - **`ask_user`** — asks the user a clarifying question. Supports the legacy single-question form plus one to three short structured questions with stable IDs, headers, and optional multiple-choice options. Always prompts, even in yolo mode. Not available to subagents. Marked `NEEDS_SEQUENTIAL` so it always runs on the main thread.
 
 **Delegation (no confirmation):**
-- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Delegated runs return agent/model/status/step metadata plus the final subagent result, and the display layer logs start/progress/done status lines. `run_in_background: true` starts the subagent in a daemon thread and returns a task ID for `check_task`. Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `read_many_files`, `file_outline`, and `lsp_navigate` alongside the existing navigation tools. Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
+- **`delegate`** — spawns a subagent with its own conversation, filtered tool set, and optional model override. No confirmation needed (the subagent's own tools handle it). Delegated runs return agent/model/status/step metadata plus the final subagent result, including the configured `max_steps` budget, and the display layer logs start/progress/done status lines. `run_in_background: true` starts the subagent in a daemon thread and returns a task ID for `check_task`. Two built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both now default to `100` steps. Both include `read_many_files`, `file_outline`, and `lsp_navigate` alongside the existing navigation tools. Custom agents can be defined via JSON files in `~/.agents/` or `.agents/`.
 
 ## MCP Client Support
 
@@ -302,10 +302,10 @@ The `delegate` tool lets the model spawn child agents for subtasks. Each subagen
 - **No access to `delegate`** itself (no nesting) or **`ask_user`** (cannot prompt the user)
 
 **Built-in agents:**
-- `explore` — read-only tools, uses haiku, research-focused system prompt
-- `code` — all tools except delegate and ask_user, inherits parent model and system prompt
+- `explore` — read-only tools, uses haiku, research-focused system prompt, `max_steps: 100`
+- `code` — all tools except delegate and ask_user, inherits parent model and system prompt, `max_steps: 100`
 
-**Custom agents:** Place `.json` files in `~/.agents/` (user-level) or `.agents/` (project-level, higher priority). Each defines `name`, `description`, optional `model`, optional `tools` list, optional `system_prompt`. The `delegate` and `ask_user` tools are always excluded from subagent tool lists.
+**Custom agents:** Place `.json` files in `~/.agents/` (user-level) or `.agents/` (project-level, higher priority). Each defines `name`, `description`, optional `model`, optional `tools` list, optional `system_prompt`, and optional `max_steps` (positive integer; `max_turns` is also accepted as an alias). The `delegate` and `ask_user` tools are always excluded from subagent tool lists.
 
 **Key files:**
 - `agents.py` — `BUILTIN_AGENTS`, `load_all_agents()`, `run_subagent()`

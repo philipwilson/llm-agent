@@ -88,6 +88,7 @@ class TestCheckTask:
                     "finished_at": time.time(),
                     "duration_seconds": 1.0,
                     "steps": 2,
+                    "max_steps": 100,
                     "usage": {"input": 100, "output": 50, "cache_read": 0, "cache_create": 0},
                     "result": "Found the relevant files.",
                 }
@@ -99,6 +100,7 @@ class TestCheckTask:
         assert "delegated subagent" in result
         assert "Agent: explore" in result
         assert "Steps: 2" in result
+        assert "Step limit: 100" in result
         assert "Found the relevant files." in result
 
     def test_list_all_tasks_includes_delegated_tasks(self):
@@ -115,6 +117,7 @@ class TestCheckTask:
                     "finished_at": None,
                     "duration_seconds": 0.1,
                     "steps": 0,
+                    "max_steps": 100,
                     "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0},
                     "result": "",
                 }

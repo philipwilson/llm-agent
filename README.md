@@ -111,7 +111,7 @@ The agent has eighteen tools it can use autonomously. Read-only tools run withou
 - **ask_user** -- ask the user one clarifying question or a short structured set of up to three questions with stable answer IDs; supports free-text and multiple-choice, always prompts, and is not available to subagents
 
 **Delegation (no confirmation):**
-- **delegate** -- spawn a subagent with its own conversation and filtered tool set, optionally overriding the model for that run; can run in the background and returns agent/model/step metadata plus the subagent result when run synchronously (built-in: `explore` for read-only research, `code` for full access, both including `file_outline` and `lsp_navigate`)
+- **delegate** -- spawn a subagent with its own conversation and filtered tool set, optionally overriding the model for that run; can run in the background and returns agent/model/step metadata plus the subagent result when run synchronously. Built-in agents now default to a much higher `max_steps` budget, and custom agents can set their own `max_steps` in `.agents/*.json` (built-in: `explore` for read-only research, `code` for full access, both including `file_outline` and `lsp_navigate`)
 
 In yolo mode (`-y`), `run_command` auto-approves unless the command matches known dangerous patterns (e.g. `rm -rf`, `mkfs`, `dd`). Background shell commands and background delegated subagents return a task ID immediately; use `check_task` to inspect status and output. PTY session starts and non-empty `write_stdin` calls still prompt explicitly.
 

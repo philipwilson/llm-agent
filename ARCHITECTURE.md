@@ -2,7 +2,7 @@
 
 A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
 
-**Version:** 0.26.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.27.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -185,7 +185,7 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 
 | Tool | Description |
 |------|-------------|
-| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Delegated runs return agent/model/status/step metadata plus the final subagent result, and may be backgrounded for later inspection via `check_task`. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `file_outline` and `lsp_navigate` in their navigation tools. |
+| `delegate` | Spawn a subagent with its own conversation, filtered tool set, and optional model override. Delegated runs return agent/model/status/step metadata plus the final subagent result, including the configured `max_steps` budget, and may be backgrounded for later inspection via `check_task`. Built-in agents: `explore` (read-only, haiku) and `code` (full tools, inherits model). Both include `file_outline` and `lsp_navigate` in their navigation tools. |
 
 ---
 
@@ -194,7 +194,7 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.26.0"
+    __init__.py                # VERSION = "0.27.0"
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
@@ -493,10 +493,10 @@ The `delegate` tool spawns child agents with isolated conversations and filtered
 
 | Agent | Model | Tools | Use Case |
 |-------|-------|-------|----------|
-| `explore` | haiku | read-only (read_file, read_many_files, list_directory, search_files, glob_files, file_outline, lsp_navigate, read_url, web_search) | Fast, cheap research and fact-finding |
-| `code` | (inherits parent) | all except delegate and ask_user | Full coding tasks needing file writes or commands |
+| `explore` | haiku | read-only (read_file, read_many_files, list_directory, search_files, glob_files, file_outline, lsp_navigate, read_url, web_search) | Fast, cheap research and fact-finding (`max_steps: 100`) |
+| `code` | (inherits parent) | all except delegate and ask_user | Full coding tasks needing file writes or commands (`max_steps: 100`) |
 
-Subagents **never** have access to `delegate` (no nesting) or `ask_user` (cannot prompt the user). Each runs in its own conversation up to 20 steps, and returns a final text answer to the parent.
+Subagents **never** have access to `delegate` (no nesting) or `ask_user` (cannot prompt the user). Each runs in its own conversation with a configurable `max_steps` budget (default `100`), and returns a final text answer to the parent.
 
 ### Custom Agents
 
@@ -512,7 +512,7 @@ Define JSON files in `~/.agents/` (user-level) or `.agents/` (project-level, hig
 }
 ```
 
-Fields: `name` (required), `description`, `model` (null to inherit), `tools` (null for all except delegate), `system_prompt` (null to inherit).
+Fields: `name` (required), `description`, `model` (null to inherit), `tools` (null for all except delegate), `system_prompt` (null to inherit), `max_steps` (positive integer; `max_turns` accepted as an alias).
 
 ---
 

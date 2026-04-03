@@ -11,11 +11,14 @@ from llm_agent.formatting import bold, dim, format_tokens, yellow, red
 
 # ---------- Built-in agent definitions ----------
 
+DEFAULT_SUBAGENT_MAX_STEPS = 100
+
 BUILTIN_AGENTS = {
     "explore": {
         "name": "explore",
         "description": "Fast read-only research agent (uses haiku)",
         "model": "haiku",
+        "max_steps": DEFAULT_SUBAGENT_MAX_STEPS,
         "tools": [
             "read_file", "read_many_files", "list_directory", "search_files",
             "glob_files", "file_outline", "read_url", "web_search",
@@ -31,6 +34,7 @@ BUILTIN_AGENTS = {
         "name": "code",
         "description": "Full-capability coding agent (inherits parent model)",
         "model": None,  # inherit from parent
+        "max_steps": DEFAULT_SUBAGENT_MAX_STEPS,
         "tools": [
             "read_file", "read_many_files", "list_directory", "search_files", "glob_files",
             "file_outline",
@@ -110,6 +114,26 @@ def _resolve_subagent_model(defn, parent_model, model_override=None):
     return sub_model
 
 
+def _normalize_positive_int(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1 else None
+
+
+def _resolve_subagent_max_steps(defn):
+    for key in ("max_steps", "max_turns"):
+        resolved = _normalize_positive_int(defn.get(key))
+        if resolved is not None:
+            return resolved
+    return DEFAULT_SUBAGENT_MAX_STEPS
+
+
 class BackgroundSubagentTask:
     """Tracks a delegated subagent running in a background thread."""
 
@@ -132,20 +156,24 @@ class BackgroundSubagentTask:
         self.started_at = time.time()
         self.finished_at = None
         self._lock = threading.Lock()
+        self.max_steps = DEFAULT_SUBAGENT_MAX_STEPS
         self._metadata = {
             "agent": agent_name,
             "model": None,
             "status": "running",
             "steps": 0,
+            "max_steps": self.max_steps,
             "duration_seconds": 0.0,
             "usage": dict(_EMPTY_USAGE),
             "result": "",
         }
         defn, error = _resolve_subagent_definition(agent_name)
         if defn is not None:
+            self.max_steps = _resolve_subagent_max_steps(defn)
             self._metadata["model"] = _resolve_subagent_model(
                 defn, parent_model, model_override=model_override
             )
+            self._metadata["max_steps"] = self.max_steps
         else:
             self._metadata["status"] = "error"
             self._metadata["result"] = error
@@ -207,6 +235,7 @@ class BackgroundSubagentTask:
             "model": metadata.get("model"),
             "status": status,
             "steps": metadata.get("steps", 0),
+            "max_steps": metadata.get("max_steps", self.max_steps),
             "started_at": self.started_at,
             "finished_at": finished_at,
             "duration_seconds": duration,
@@ -288,6 +317,17 @@ def _load_custom_agents():
                     filtered = [t for t in tools if t not in excluded]
                     if len(filtered) != len(tools):
                         defn["tools"] = filtered
+                for key in ("max_steps", "max_turns"):
+                    if key not in defn:
+                        continue
+                    normalized = _normalize_positive_int(defn.get(key))
+                    if normalized is None:
+                        get_display().error(
+                            f"{yellow(f'Warning: ignoring invalid {key} in {path}; expected a positive integer')}"
+                        )
+                        defn.pop(key, None)
+                    else:
+                        defn[key] = normalized
                 agents[name] = defn
             except (json.JSONDecodeError, OSError) as e:
                 get_display().error(f"{yellow(f'Warning: skipping {path}: {e}')}")
@@ -315,7 +355,7 @@ def run_subagent(
     from llm_agent.tools import build_tool_set
     from llm_agent.tools.base import FileObservationStore
 
-    def finish(status, result_text, *, resolved_model=None, turns=0, usage=None, started_at=None):
+    def finish(status, result_text, *, resolved_model=None, turns=0, max_steps=None, usage=None, started_at=None):
         duration = 0.0
         if started_at is not None:
             duration = max(0.0, time.monotonic() - started_at)
@@ -324,6 +364,7 @@ def run_subagent(
             "model": resolved_model,
             "status": status,
             "steps": turns,
+            "max_steps": max_steps,
             "duration_seconds": round(duration, 2),
             "usage": dict(usage or _EMPTY_USAGE),
             "result": result_text,
@@ -339,6 +380,7 @@ def run_subagent(
 
     # Resolve model
     sub_model = _resolve_subagent_model(defn, model, model_override=model_override)
+    max_steps = _resolve_subagent_max_steps(defn)
 
     # Resolve tools
     tool_names = defn.get("tools")
@@ -401,12 +443,13 @@ def run_subagent(
     # Run the agent loop
     messages = [{"role": "user", "content": task}]
     sub_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
-    max_steps = 20
     steps = 0
     started_at = time.monotonic()
 
     display = get_display()
-    display.status(f"  [{agent_name} subagent starting: model {sub_model}]")
+    display.status(
+        f"  [{agent_name} subagent starting: model {sub_model}, max {max_steps} steps]"
+    )
     display.subagent_started()
 
     extra_kwargs = {}
@@ -443,6 +486,7 @@ def run_subagent(
                     "(subagent was interrupted by the user)",
                     resolved_model=sub_model,
                     turns=steps,
+                    max_steps=max_steps,
                     usage=sub_usage,
                     started_at=started_at,
                 )
@@ -471,6 +515,7 @@ def run_subagent(
         result_text,
         resolved_model=sub_model,
         turns=steps,
+        max_steps=max_steps,
         usage=sub_usage,
         started_at=started_at,
     )

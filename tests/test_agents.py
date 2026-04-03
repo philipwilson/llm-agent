@@ -5,7 +5,12 @@ import os
 
 import pytest
 
-from llm_agent.agents import BUILTIN_AGENTS, load_all_agents, _load_custom_agents
+from llm_agent.agents import (
+    BUILTIN_AGENTS,
+    DEFAULT_SUBAGENT_MAX_STEPS,
+    load_all_agents,
+    _load_custom_agents,
+)
 
 
 class TestBuiltinAgents:
@@ -13,6 +18,7 @@ class TestBuiltinAgents:
         explore = BUILTIN_AGENTS["explore"]
         assert explore["name"] == "explore"
         assert explore["model"] == "haiku"
+        assert explore["max_steps"] == DEFAULT_SUBAGENT_MAX_STEPS
         # Should be read-only tools
         assert "write_file" not in explore["tools"]
         assert "run_command" not in explore["tools"]
@@ -24,6 +30,7 @@ class TestBuiltinAgents:
         code = BUILTIN_AGENTS["code"]
         assert code["name"] == "code"
         assert code["model"] is None  # inherits parent
+        assert code["max_steps"] == DEFAULT_SUBAGENT_MAX_STEPS
         assert "read_file" in code["tools"]
         assert "read_many_files" in code["tools"]
         assert "file_outline" in code["tools"]
@@ -48,6 +55,7 @@ class TestLoadCustomAgents:
             "name": "helper",
             "description": "A helper agent",
             "tools": ["read_file", "search_files"],
+            "max_steps": 250,
         }))
         monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
         # Patch expanduser to avoid loading real ~/.agents
@@ -56,6 +64,7 @@ class TestLoadCustomAgents:
         agents = _load_custom_agents()
         assert "helper" in agents
         assert agents["helper"]["description"] == "A helper agent"
+        assert agents["helper"]["max_steps"] == 250
 
     def test_filters_delegate_and_ask_user(self, tmp_path, monkeypatch):
         agents_dir = tmp_path / ".agents"
@@ -104,6 +113,22 @@ class TestLoadCustomAgents:
 
         agents = _load_custom_agents()
         assert agents["agent"]["description"] == "project-level"
+
+    def test_ignores_invalid_max_steps(self, tmp_path, monkeypatch):
+        agents_dir = tmp_path / ".agents"
+        agents_dir.mkdir()
+        (agents_dir / "bad-limit.json").write_text(json.dumps({
+            "name": "bad-limit",
+            "description": "Bad limit",
+            "max_steps": 0,
+        }))
+        monkeypatch.setattr(os, "getcwd", lambda: str(tmp_path))
+        monkeypatch.setattr(os.path, "expanduser", lambda p: str(tmp_path / "nohome"))
+
+        agents = _load_custom_agents()
+
+        assert "bad-limit" in agents
+        assert "max_steps" not in agents["bad-limit"]
 
 
 class TestLoadAllAgents:

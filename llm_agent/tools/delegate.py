@@ -64,6 +64,7 @@ def _format_delegate_result(metadata):
         f"model: {metadata.get('model') or '(unknown)'}",
         f"status: {metadata.get('status') or '(unknown)'}",
         f"steps: {metadata.get('steps', 0)}",
+        f"max_steps: {metadata.get('max_steps') or '(unknown)'}",
         f"duration_seconds: {metadata.get('duration_seconds', 0):.2f}",
         f"usage: {token_summary}",
         "",

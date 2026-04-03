@@ -42,6 +42,7 @@ class TestDelegate:
                     "model": model_override or "claude-haiku-4-5",
                     "status": "completed",
                     "steps": 2,
+                    "max_steps": 100,
                     "duration_seconds": 0.25,
                     "usage": {"input": 120, "output": 45, "cache_read": 0, "cache_create": 0},
                     "result": "subagent result",
@@ -55,6 +56,7 @@ class TestDelegate:
         assert "[delegated run]" in result
         assert "agent: explore" in result
         assert "model: claude-haiku-4-5" in result
+        assert "max_steps: 100" in result
         assert "subagent result" in result
         assert calls == [("explore", "find files", None, True)]
 
@@ -68,6 +70,7 @@ class TestDelegate:
                 "model": model_override,
                 "status": "completed",
                 "steps": 1,
+                "max_steps": 100,
                 "duration_seconds": 0.1,
                 "usage": {"input": 100, "output": 20, "cache_read": 0, "cache_create": 0},
                 "result": "done",

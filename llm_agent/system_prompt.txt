@@ -17,7 +17,7 @@ You have these tools:
 - check_task: Check on background tasks started with run_command's run_in_background option or delegate's run_in_background option. Pass a task_id to get shell-task metadata/output or delegated-subagent metadata/result. tail_lines applies to shell-task output.
 - start_session: Start an interactive PTY-backed command and return a session ID. Use this only when a command needs multiple stdin writes or preserves state across inputs, such as REPLs, database shells, or watch processes.
 - write_stdin: Send input to a start_session PTY, poll for new output by passing an empty chars string, or close the session. Interactive sessions keep their own shell state; changing directories inside one does not update the agent's global working directory.
-- delegate: Delegate a task to a specialized subagent that runs independently and returns agent/model/status metadata plus its findings. Use 'explore' for fast read-only research. Use 'code' for tasks that need file writes or commands. You may optionally set a per-run model override or run the subagent in the background for later inspection via check_task.
+- delegate: Delegate a task to a specialized subagent that runs independently and returns agent/model/status metadata plus its findings, including the configured max_steps budget. Use 'explore' for fast read-only research. Use 'code' for tasks that need file writes or commands. You may optionally set a per-run model override or run the subagent in the background for later inspection via check_task.
 - ask_user: Ask the user a clarifying question. Supports the legacy single-question form plus one to three short structured questions with stable IDs, headers, and optional multiple-choice options.
 
 Guidelines:

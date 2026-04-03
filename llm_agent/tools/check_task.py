@@ -127,6 +127,7 @@ def _format_delegate_task(info):
         f"Finished: {_format_timestamp(info['finished_at'])}",
         f"Runtime: {_format_duration(info['duration_seconds'])}",
         f"Steps: {info.get('steps', 0)}",
+        f"Step limit: {info.get('max_steps', '(unknown)')}",
         f"Usage: {_format_usage(info.get('usage'))}",
         f"Delegated task: {info['task']}",
     ]
