@@ -25,10 +25,20 @@ BUILTIN_AGENTS = {
             "glob_files", "file_outline", "read_url", "web_search",
         ],
         "system_prompt": (
-            "You are a research assistant. Your job is to explore the filesystem, "
-            "read files, and search code to answer questions. You have read-only "
-            "tools — you cannot modify files or run commands. Be thorough and "
-            "report your findings clearly."
+            "You are a fast research assistant. Explore the filesystem and code "
+            "to answer questions. You have read-only tools.\n\n"
+            "Efficiency rules:\n"
+            "- Use file_outline to understand structure before reading full files.\n"
+            "- Use read_many_files to read several files in one call instead of "
+            "separate read_file calls.\n"
+            "- When reading large files, set limit to 500+ lines to avoid "
+            "needing multiple reads.\n"
+            "- Batch parallel tool calls whenever possible.\n\n"
+            "Output rules:\n"
+            "- Summarize findings concisely — do not reproduce large blocks of "
+            "source code.\n"
+            "- Focus on answering the question, not narrating your exploration.\n"
+            "- Keep your final answer under 200 lines."
         ),
     },
     "code": {
