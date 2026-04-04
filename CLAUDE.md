@@ -415,7 +415,7 @@ Branch: !`git branch --show-current`
 - `/name [args]` — invoke a skill (e.g. `/review src/main.py`)
 - `/mcp` — list connected MCP servers and their tools
 
-Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/sessions`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
+Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/refresh`, `/sessions`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard). `/refresh` re-detects git branch, status, and project context mid-session.
 
 **Key files:**
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`
@@ -520,7 +520,7 @@ Updated after each agent turn via `_update_status_bar()`.
 - **Readline** — Emacs-style line editing and persistent history (`~/.agent_history`, 1000 entries) in both TUI and readline REPL modes
 - **Prompt caching** — system prompt, tool definitions, and conversation prefix are cached across API calls to reduce cost and latency
 - **Token tracking** — per-turn and session totals printed after each answer (to stderr in `-c` mode for clean piping), includes cache hit stats
-- **Token-budget conversation trimming** — after each question, if the API-reported input token count exceeds 80% of the model's context window, the oldest message rounds are trimmed to bring usage under budget. Before discarding, the dropped messages are summarized by the model and the summary is prepended as a `[Earlier context summary]` message so the agent retains key decisions and findings.
+- **Token-budget conversation trimming** — after each question, if the API-reported input token count exceeds 80% of the model's context window, the oldest message rounds are trimmed to bring usage under budget. Before discarding, the dropped messages are summarized by the model and the summary is prepended as a `[Earlier context summary]` message so the agent retains key decisions and findings. A warning is shown when context usage exceeds 75% (before the automatic trim threshold).
 - **Project context auto-detection** — at startup, the system prompt is augmented with project context detected from the working directory: project type (from `pyproject.toml`, `package.json`, `Cargo.toml`, etc.), git branch/status/recent commits, and `AGENTS.md` convention file if present. This is handled by `context.py` → `agent.py:refresh_project_context()`.
 - **File attachments** — use `@filepath` in prompts to attach images (png, jpg, jpeg, gif, webp) or PDFs. The `@` must be at the start of a word (so `user@email.com` is left alone). Works in both interactive and `-c` mode. Attachments are base64-encoded and sent as multimodal content blocks.
 - **Output truncation** — command output over 200 lines is cut to first/last 100 lines

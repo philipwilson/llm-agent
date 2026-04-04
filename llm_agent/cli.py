@@ -337,7 +337,7 @@ def agent_loop(session):
     display = get_display()
     mode = "YOLO mode" if session.auto_approve else "confirm mode"
     display.info(f"{bold('Agent ready')} {dim(f'(model: {session.model}, {mode})')}")
-    display.status("Type a question, /clear, /mcp, /model, /sessions, /thinking, /skills, /version, or 'quit'.\n")
+    display.status("Type a question, /clear, /mcp, /model, /refresh, /sessions, /thinking, /skills, /version, or 'quit'.\n")
     update_terminal_title()
 
     ctrl_d_pending = False
@@ -387,6 +387,15 @@ def agent_loop(session):
                 f"{format_tokens(session.session_usage['output'])} out{context_info}]"
             )
 
+        # Context window warning before trim kicks in
+        last_input = turn_usage.get("last_input", 0)
+        if last_input > 0 and turn_usage.get("trimmed", 0) == 0:
+            window = context_window(session.model)
+            remaining_pct = (window - last_input) / window * 100
+            if remaining_pct < 25:
+                display.status(
+                    f"  {yellow(f'(warning: {remaining_pct:.0f}% of context window remaining — old messages will be trimmed soon)')}"
+                )
         if turn_usage.get("trimmed", 0) > 0:
             display.status(f"  (trimmed {turn_usage['trimmed']} old messages to fit context window)")
         update_terminal_title()

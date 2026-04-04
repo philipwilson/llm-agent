@@ -105,6 +105,9 @@ class Session:
         if stripped == "/sessions":
             return self._handle_sessions(), None
 
+        if stripped == "/refresh":
+            return self._handle_refresh(), None
+
         # Skill invocation
         if text.startswith("/"):
             parts = text.split(None, 1)
@@ -400,6 +403,12 @@ class Session:
                 return ["(no MCP servers connected)"]
         except Exception:
             return ["(MCP not available)"]
+
+    def _handle_refresh(self):
+        """Handle /refresh command. Re-detect project context."""
+        from llm_agent.agent import refresh_project_context
+        self._system_prompt = refresh_project_context()
+        return ["(project context refreshed)"]
 
     def _handle_sessions(self):
         """Handle /sessions command. Returns list of status messages."""

@@ -91,6 +91,19 @@ class TestHandleCommand:
         messages, _ = result
         assert isinstance(messages, list)
 
+    def test_refresh_command(self, session):
+        result = session.handle_command("/refresh")
+        messages, transformed = result
+        assert transformed is None
+        assert any("refreshed" in m for m in messages)
+        assert session._system_prompt  # should have a system prompt
+
+    def test_sessions_command(self, session):
+        result = session.handle_command("/sessions")
+        messages, transformed = result
+        assert transformed is None
+        assert isinstance(messages, list)
+
     def test_unknown_slash_command(self, session):
         result = session.handle_command("/nonexistent")
         messages, _ = result

@@ -903,6 +903,17 @@ class AgentApp(App):
         self.call_from_thread(self._update_status_bar, turn_usage)
         self.call_from_thread(self._update_title)
 
+        # Context window warning
+        last_input = turn_usage.get("last_input", 0)
+        if last_input > 0 and turn_usage.get("trimmed", 0) == 0:
+            from llm_agent.models import context_window
+            from llm_agent.formatting import yellow
+            window = context_window(self._session.model)
+            remaining_pct = (window - last_input) / window * 100
+            if remaining_pct < 25:
+                self._tui_display.status(
+                    f"  {yellow(f'(warning: {remaining_pct:.0f}% of context window remaining — old messages will be trimmed soon)')}"
+                )
         if turn_usage.get("trimmed", 0) > 0:
             self._tui_display.status(
                 f"  (trimmed {turn_usage['trimmed']} old messages to fit context window)"
