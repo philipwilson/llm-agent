@@ -1,8 +1,8 @@
 # llm-agent — Features & Architecture
 
-A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, and OpenAI models.
+A terminal-based AI agent that answers questions by exploring your filesystem, running shell commands, and searching the web. Supports Anthropic Claude (direct API and Vertex AI), Google Gemini, OpenAI, and local Ollama models.
 
-**Version:** 0.27.0 · **License:** MIT · **Python:** ≥ 3.9
+**Version:** 0.33.0 · **License:** MIT · **Python:** ≥ 3.9
 
 ---
 
@@ -40,14 +40,17 @@ A terminal-based AI agent that answers questions by exploring your filesystem, r
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-provider** | Anthropic Claude (direct + Vertex AI), Google Gemini, OpenAI — switch mid-session with `/model` |
+| **Multi-provider** | Anthropic Claude (direct + Vertex AI), Google Gemini, OpenAI, local Ollama — switch mid-session with `/model` |
 | **Streaming** | Responses stream to the terminal as they're generated |
 | **Interactive TUI** | Textual-based terminal UI (light theme) with readline fallback |
-| **16+ tools** | Read files, search code, browse the web, edit files, apply structured patches, run commands, manage background jobs, drive interactive PTY sessions, ask clarifying questions, delegate to subagents, plus external MCP tools |
+| **18 tools** | Read files, search code, browse the web, edit files, apply structured patches, run commands, manage background jobs, drive interactive PTY sessions, ask clarifying questions, delegate to subagents, plus external MCP tools |
 | **Working directory tracking** | `cd` in one command persists to the next |
 | **Prompt caching** | System prompt and conversation prefix cached across Anthropic API calls |
 | **Token tracking** | Per-turn and session totals after each answer, cache hit stats |
-| **Context trimming** | Oldest messages summarised and dropped when nearing context window limits |
+| **Context trimming** | Oldest messages summarised and dropped when nearing context window limits, with 75% usage warning |
+| **Session persistence** | Auto-saves sessions to disk after each turn; `--resume` to reload |
+| **Persistent config** | `~/.config/llm-agent/config.toml` for default model, yolo, timeout, thinking, etc. |
+| **Debug/trace mode** | `--debug` writes structured JSON-lines trace of API calls, tool dispatch, and errors |
 | **File attachments** | `@filepath` syntax for images (PNG, JPG, GIF, WebP) and PDFs |
 | **Skills** | Reusable prompt templates invoked as `/slash` commands |
 | **Subagent delegation** | Spawn child agents for read-only research or full coding tasks |
@@ -55,7 +58,7 @@ A terminal-based AI agent that answers questions by exploring your filesystem, r
 | **Parallel tool calls** | Read-only tools execute concurrently via thread pool |
 | **Output truncation** | Command output over 200 lines trimmed to first/last 100 lines |
 | **Readline history** | Persistent history (`~/.agent_history`, 1000 entries) with Emacs keybindings |
-| **Project context** | Auto-detects project type, git status, and `AGENTS.md` instructions at startup |
+| **Project context** | Auto-detects project type, git status, and `AGENTS.md` instructions; `/refresh` to update mid-session |
 | **Thinking levels** | Gemini models support `--thinking low|medium|high` for reasoning depth control |
 
 ---
@@ -74,6 +77,12 @@ A terminal-based AI agent that answers questions by exploring your filesystem, r
 | `gpt-5.2` | gpt-5.2 | OpenAI | 400k | 128k |
 | `o3` | o3 | OpenAI | 200k | 100k |
 | `o4-mini` | o4-mini | OpenAI | 200k | 100k |
+| `qwen3` | ollama:qwen3.5:122b | Ollama | 32k* | 8k |
+| `qwen3-coder` | ollama:qwen3.5:35b-a3b-coding-nvfp4 | Ollama | 32k* | 8k |
+| `gemma4-31b` | ollama:gemma4:31b | Ollama | 32k* | 8k |
+| `ollama:<name>` | any Ollama model | Ollama | 32k* | 8k |
+
+\* Ollama context window defaults to 32k; override with `OLLAMA_CONTEXT_WINDOW` env var.
 
 ---
 
@@ -84,6 +93,7 @@ pip install -e .              # base (Anthropic direct API)
 pip install -e '.[vertex]'    # + Vertex AI
 pip install -e '.[gemini]'    # + Gemini
 pip install -e '.[openai]'    # + OpenAI
+pip install -e '.[ollama]'    # + Ollama (local models)
 pip install -e '.[tui]'       # + Textual TUI
 pip install -e '.[mcp]'       # + MCP tool servers
 pip install -e '.[all]'       # everything
@@ -97,9 +107,13 @@ export ANTHROPIC_VERTEX_PROJECT_ID="..."    # Anthropic via Vertex AI
 export CLOUD_ML_REGION="us-east5"           # Vertex region (optional)
 export GOOGLE_API_KEY="..."                 # Gemini
 export OPENAI_API_KEY="..."                 # OpenAI
+# Ollama: no API key needed, just have 'ollama serve' running
+export OLLAMA_HOST="http://localhost:11434"  # optional, this is the default
 ```
 
 If both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set, the direct API takes priority.
+
+Settings can also be persisted in `~/.config/llm-agent/config.toml` (see Configuration section in CLAUDE.md).
 
 ---
 
@@ -108,12 +122,16 @@ If both `ANTHROPIC_API_KEY` and `ANTHROPIC_VERTEX_PROJECT_ID` are set, the direc
 ```bash
 llm-agent                                    # interactive (default: sonnet)
 llm-agent -m opus                            # choose model
+llm-agent -m ollama:mistral                  # local Ollama model
 llm-agent -c "how much disk space is free?"  # single-shot
 llm-agent -y                                 # auto-approve safe commands (yolo mode)
 llm-agent -m gemini-pro --thinking high      # Gemini thinking level
 llm-agent --no-tui                           # readline REPL instead of TUI
 llm-agent -c "@photo.png what's in this?"    # attach files
 llm-agent -t 60                              # 60-second command timeout
+llm-agent --resume                           # resume most recent session
+llm-agent --resume abc1                      # resume session by ID prefix
+llm-agent --debug                            # enable debug trace logging
 ```
 
 ---
@@ -127,6 +145,8 @@ llm-agent -t 60                              # 60-second command timeout
 | `/skills` | List available skills |
 | `/name [args]` | Invoke a skill (e.g. `/review src/main.py`) |
 | `/mcp` | List connected MCP servers and their tools |
+| `/sessions` | List recent saved sessions |
+| `/refresh` | Re-detect git branch, status, and project context |
 | `/clear` | Clear conversation history |
 | `/copy` | Copy last assistant response to clipboard (TUI only) |
 | `/version` | Show version and current model |
@@ -194,12 +214,17 @@ The agent has **18 tools** it can use autonomously. Read-only tools run without 
 ```
 pyproject.toml                 # package metadata, entry point, optional deps
 llm_agent/
-    __init__.py                # VERSION = "0.27.0"
+    __init__.py                # VERSION
     cli.py                     # main(), arg parsing, REPL, agent_loop()
     session.py                 # Session class — state, command routing, run_question()
     agent.py                   # agent_turn() — Anthropic streaming + retry
     gemini_agent.py            # gemini_agent_turn() — Gemini streaming + format conversion
     openai_agent.py            # openai_agent_turn() — OpenAI streaming + format conversion
+    ollama_agent.py            # ollama_agent_turn() — Ollama via OpenAI-compat API
+    models.py                  # canonical model registry (aliases, providers, context windows)
+    config.py                  # user config file (~/.config/llm-agent/config.toml)
+    debug.py                   # debug/trace logging (--debug flag)
+    persistence.py             # session persistence (save/load/list/find)
     agents.py                  # subagent definitions, run_subagent()
     context.py                 # project context detection (project type, git, AGENTS.md)
     skills.py                  # skill parsing, discovery, rendering
@@ -240,29 +265,33 @@ llm_agent/
 
 ```
 main() — cli.py
-├── parse args (-m, -y, -c, --thinking, --no-tui, -t)
-├── make_client(model) → Anthropic / Gemini / OpenAI client
-├── Session(client, model, ...) → create session (wires subagent callback, loads skills)
+├── parse args (-m, -y, -c, --thinking, --no-tui, -t, --resume, --debug)
+├── load_config() → merge CLI flags > config.toml > defaults
+├── enable_debug() → start JSON-lines trace (if --debug)
+├── make_client(model) → Anthropic / Gemini / OpenAI / Ollama client
+├── Session.load_from() or Session() → resume or create session
 ├── refresh_project_context() → detect project type, git, AGENTS.md
 ├── load_mcp_config() → connect to MCP servers, register tools
 └── dispatch to:
-    ├── single-shot: session.run_question() then exit
+    ├── single-shot: session.run_question() then exit (no session save)
     ├── readline REPL: agent_loop(session) → session.run_question() in a loop
     └── Textual TUI: run_tui() → AgentApp → session.run_question() in worker thread
 
 Session.run_question(user_input) — session.py
 ├── parse_attachments() → extract @filepath as base64 content blocks
 ├── append user message to conversation
-└── loop (up to MAX_STEPS=20, or 50 for Gemini):
-    ├── call agent_turn() / gemini_agent_turn() / openai_agent_turn()
-    │   ├── stream response via provider SDK
-    │   ├── accumulate content blocks (text + tool_use)
-    │   ├── if tool_use blocks present:
-    │   │   ├── dispatch_tool_calls() → parallel safe / sequential confirm
-    │   │   └── append tool results to messages
-    │   └── return (messages, done=True if final answer, False if tools pending)
-    ├── if done: break
-    └── continue loop
+├── loop (up to MAX_STEPS=20, or 50 for Gemini):
+│   ├── call agent_turn() / gemini_agent_turn() / openai_agent_turn() / ollama_agent_turn()
+│   │   ├── stream response via provider SDK
+│   │   ├── accumulate content blocks (text + tool_use)
+│   │   ├── if tool_use blocks present:
+│   │   │   ├── dispatch_tool_calls() → parallel safe / sequential confirm
+│   │   │   └── append tool results to messages
+│   │   └── return (messages, done=True if final answer, False if tools pending)
+│   ├── if done: break
+│   └── continue loop
+├── trim_conversation() → prune old messages if >80% of context window
+└── _save() → auto-save session to disk (atomic JSON write)
 ```
 
 ### Key Functions
@@ -272,7 +301,7 @@ Session.run_question(user_input) — session.py
 | `main()` | cli.py | Entry point — arg parsing, client creation, mode dispatch |
 | `Session` | session.py | Agent session state, command routing, and question execution |
 | `Session.run_question()` | session.py | Run one user question to completion (agent turn loop with MAX_STEPS guard) |
-| `Session.handle_command()` | session.py | Route interactive commands (`/clear`, `/model`, `/thinking`, `/mcp`, `/skills`, skills) |
+| `Session.handle_command()` | session.py | Route interactive commands (`/clear`, `/model`, `/thinking`, `/mcp`, `/sessions`, `/refresh`, `/skills`, skills) |
 | `agent_loop()` | cli.py | Readline REPL — calls session.handle_command() and session.run_question() |
 | `agent_turn()` | agent.py | Single Anthropic API call — stream, dispatch tools, return |
 | `gemini_agent_turn()` | gemini_agent.py | Single Gemini API call with format conversion |
@@ -311,6 +340,15 @@ Messages are stored internally in **Anthropic format**. Provider-specific module
 - `tool_result` blocks → separate `role: "tool"` messages with `tool_call_id`
 - Reasoning models (`gpt-5.2`, `o3`, `o4-mini`) use `max_completion_tokens` instead of `max_tokens`
 - SDK: `openai` (lazy-imported)
+
+**Ollama** (`ollama_agent.py`):
+- Reuses OpenAI message/tool conversion (Ollama exposes an OpenAI-compatible API)
+- Client created with `openai.OpenAI(api_key="ollama", base_url="http://localhost:11434/v1")`
+- `ollama:` prefix stripped before sending model name to the API
+- Falls back to token estimation when Ollama doesn't report usage stats
+- SDK: `openai` (lazy-imported, shared with OpenAI provider)
+
+All model metadata (aliases, provider detection, context windows, max output tokens, reasoning model flags) lives in a single canonical module `models.py`.
 
 Switching providers mid-session via `/model` recreates the client and clears conversation history.
 
@@ -393,7 +431,7 @@ Gemini and OpenAI do not currently use prompt caching.
 - Session totals
 - Context window remaining percentage
 
-**Context trimming:** After each question, if the API-reported input token count exceeds **80%** of the model's context window:
+**Context trimming:** A warning is shown when context usage exceeds **75%**. After each question, if the API-reported input token count exceeds **80%** of the model's context window:
 1. Oldest message rounds are identified for removal
 2. If dropped messages exceed ~200 tokens, they're summarised by the model
 3. The summary is prepended as an `[Earlier context summary]` message
@@ -452,7 +490,7 @@ MCPManager
 └── _connect_all(cfg)   # async: stdio_client → ClientSession → list_tools
 ```
 
-Sync wrappers submit coroutines via `asyncio.run_coroutine_threadsafe()` and block for results. This is thread-safe — multiple parallel tool calls from `dispatch_tool_calls()` can submit to the same loop concurrently.
+Sync wrappers submit coroutines via `asyncio.run_coroutine_threadsafe()` and block for results with a 60-second timeout (prevents hanging on unresponsive servers). This is thread-safe — multiple parallel tool calls from `dispatch_tool_calls()` can submit to the same loop concurrently.
 
 ### Tool Registration
 
@@ -563,7 +601,7 @@ Branch: !`git branch --show-current`
 | `/skill-creator` | Development | Guide for creating new skills |
 | `/imagegen` | Other | Gemini image generation via CLI |
 
-Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills.
+Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/refresh`, `/sessions`, `/thinking`, `/version`) cannot be shadowed by skills.
 
 ---
 
@@ -593,6 +631,7 @@ All three providers implement retry with exponential backoff (**3 retries**, del
 | Anthropic | `RateLimitError`, `InternalServerError`, `APIConnectionError` |
 | Gemini | `ResourceExhausted`, `InternalServerError`, `ServiceUnavailable`, `TooManyRequests` |
 | OpenAI | `RateLimitError`, `InternalServerError`, `APIConnectionError`, `APITimeoutError` |
+| Ollama | `APIConnectionError`, `APITimeoutError`, `InternalServerError`, `ConnectionError` |
 
 The agent loop has a `MAX_STEPS=20` guard to prevent runaway tool-use loops (50 for Gemini models, which tend to make single tool calls per turn). Ctrl+C cancels the current response and returns to the prompt.
 
@@ -626,7 +665,7 @@ The system prompt instructs the model to:
 
 ### Command Timeout
 
-Shell commands time out after 30 seconds by default (configurable with `-t`).
+Shell commands time out after 120 seconds by default (configurable with `-t` or `timeout` in config.toml).
 
 ---
 
