@@ -7,6 +7,7 @@ import time
 
 from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, format_tokens, yellow, red
+from llm_agent.models import MODELS as MODEL_ALIASES, provider as _provider
 
 
 # ---------- Built-in agent definitions ----------
@@ -45,36 +46,7 @@ BUILTIN_AGENTS = {
     },
 }
 
-# Model alias → full model name (same as cli.py MODELS)
-MODEL_ALIASES = {
-    "opus": "claude-opus-4-6",
-    "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-5",
-    "gemini-flash": "gemini-2.5-flash",
-    "gemini-pro": "gemini-3.1-pro-preview",
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "gpt-5.2": "gpt-5.2",
-    "o3": "o3",
-    "o4-mini": "o4-mini",
-    "qwen3": "ollama:qwen3.5:122b",
-    "qwen3-cloud": "ollama:qwen3.5:cloud",
-    "qwen3-coder": "ollama:qwen3.5:35b-a3b-coding-nvfp4",
-    "gemma4-31b": "ollama:gemma4:31b",
-    "nemotron-nano": "ollama:nemotron-3-nano:latest",
-}
-
 _EMPTY_USAGE = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
-
-
-def _provider(model_name):
-    if model_name.startswith("ollama:"):
-        return "ollama"
-    if model_name.startswith("gemini-"):
-        return "gemini"
-    if model_name in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini"):
-        return "openai"
-    return "anthropic"
 
 
 def _extract_final_text(messages):

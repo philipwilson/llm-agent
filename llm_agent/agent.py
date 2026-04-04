@@ -12,13 +12,10 @@ from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
 
 
+from llm_agent.models import max_output_tokens as _max_output_tokens
+
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 2, 4]  # seconds between retries (exponential backoff)
-MAX_OUTPUT_TOKENS = {
-    "claude-opus-4-6": 128_000,
-    "claude-sonnet-4-6": 64_000,
-    "claude-haiku-4-5": 64_000,
-}
 
 CACHE_CONTROL = {"type": "ephemeral"}
 
@@ -146,7 +143,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
 
             api_kwargs = dict(
                 model=model,
-                max_tokens=MAX_OUTPUT_TOKENS.get(model, 64_000),
+                max_tokens=_max_output_tokens(model),
                 system=effective_system,
                 messages=cached_msgs,
             )

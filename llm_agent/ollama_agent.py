@@ -7,6 +7,7 @@ import time
 from llm_agent.debug import get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
+from llm_agent.models import ollama_model_name, max_output_tokens as _max_output_tokens
 from llm_agent.openai_agent import _convert_tools, _to_openai_messages
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
 
@@ -14,20 +15,11 @@ from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 2, 4]
 
-DEFAULT_MAX_TOKENS = 8_192
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SYSTEM_PROMPT_FILE = os.path.join(SCRIPT_DIR, "system_prompt.txt")
 
 with open(SYSTEM_PROMPT_FILE) as _f:
     SYSTEM_PROMPT = _f.read()
-
-
-def _ollama_model_name(model):
-    """Strip the 'ollama:' prefix to get the actual model name for the API."""
-    if model.startswith("ollama:"):
-        return model[len("ollama:"):]
-    return model
 
 
 def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
@@ -40,7 +32,7 @@ def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     openai_tools = _convert_tools(effective_tools)
     openai_messages = _to_openai_messages(messages, effective_system)
 
-    api_model = _ollama_model_name(model)
+    api_model = ollama_model_name(model)
 
     # Build API kwargs
     api_kwargs = {
@@ -52,7 +44,7 @@ def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     if openai_tools:
         api_kwargs["tools"] = openai_tools
 
-    max_tokens = int(os.environ.get("OLLAMA_MAX_TOKENS", DEFAULT_MAX_TOKENS))
+    max_tokens = int(os.environ.get("OLLAMA_MAX_TOKENS", _max_output_tokens(model)))
     api_kwargs["max_tokens"] = max_tokens
 
     # Ollama may support stream_options for usage stats (0.5+)

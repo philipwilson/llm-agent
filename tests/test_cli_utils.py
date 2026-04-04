@@ -5,14 +5,16 @@ import os
 import pytest
 
 from llm_agent.cli import (
-    MODELS,
     estimate_tokens,
     _is_tool_result_message,
+    parse_attachments,
+    trim_conversation,
+)
+from llm_agent.models import (
+    MODELS,
     is_gemini_model,
     is_ollama_model,
     is_openai_model,
-    parse_attachments,
-    trim_conversation,
 )
 
 

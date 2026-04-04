@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from llm_agent.ollama_agent import ollama_agent_turn, _ollama_model_name
+from llm_agent.ollama_agent import ollama_agent_turn
+from llm_agent.models import ollama_model_name as _ollama_model_name
 
 
 # ---------------------------------------------------------------------------

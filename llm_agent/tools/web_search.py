@@ -194,17 +194,10 @@ def _prepare_search_query(query):
 
 
 def _provider_for_model(model):
+    from llm_agent.models import provider
     if not isinstance(model, str):
         return "unknown"
-    if model.startswith("ollama:"):
-        return "ollama"
-    if model.startswith("gemini-"):
-        return "gemini"
-    if model.startswith("claude-"):
-        return "anthropic"
-    if model.startswith("gpt-") or model.startswith("o"):
-        return "openai"
-    return "unknown"
+    return provider(model)
 
 
 def _backend_label(backend):

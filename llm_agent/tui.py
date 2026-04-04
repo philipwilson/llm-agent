@@ -681,8 +681,8 @@ class AgentApp(App):
         if turn_usage:
             last_input = turn_usage.get("last_input", 0)
             if last_input > 0:
-                from llm_agent.cli import CONTEXT_WINDOWS
-                window = CONTEXT_WINDOWS.get(self._session.model, 200_000)
+                from llm_agent.models import context_window
+                window = context_window(self._session.model)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_text = dim(f"context: {remaining_pct:.0f}% remaining ")
         self.query_one("#status-context", Static).update(

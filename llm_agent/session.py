@@ -89,9 +89,10 @@ class Session:
             turn_usage: dict with input/output/cache_read/cache_create/last_input
                         and 'trimmed' count on success.
         """
-        from llm_agent.cli import (
-            parse_attachments, trim_conversation, is_gemini_model,
-            is_openai_model, is_ollama_model, MAX_STEPS, MAX_STEPS_GEMINI,
+        from llm_agent.cli import parse_attachments, trim_conversation, estimate_tokens
+        from llm_agent.models import (
+            is_gemini_model, is_openai_model, is_ollama_model,
+            MAX_STEPS, MAX_STEPS_GEMINI,
         )
         from llm_agent.agent import agent_turn
 
@@ -256,9 +257,9 @@ class Session:
 
     def _handle_model(self, text):
         """Handle /model command. Returns list of status messages."""
-        from llm_agent.cli import (
-            MODELS, is_gemini_model, is_openai_model, is_ollama_model,
-            make_client, DEFAULT_THINKING,
+        from llm_agent.cli import make_client
+        from llm_agent.models import (
+            MODELS, DEFAULT_THINKING, is_ollama_model, provider,
         )
 
         parts = text.strip().split()
@@ -283,17 +284,8 @@ class Session:
             messages.append(f"  or: ollama:<model-name> for local models")
             return messages
 
-        def _provider(m):
-            if is_ollama_model(m):
-                return "ollama"
-            if is_gemini_model(m):
-                return "gemini"
-            if is_openai_model(m):
-                return "openai"
-            return "anthropic"
-
-        old_provider = _provider(self.model)
-        new_provider = _provider(new_model)
+        old_provider = provider(self.model)
+        new_provider = provider(new_model)
 
         if new_provider != old_provider:
             self.client = make_client(new_model)
@@ -317,7 +309,7 @@ class Session:
 
     def _handle_thinking(self, text):
         """Handle /thinking command. Returns list of status messages."""
-        from llm_agent.cli import is_gemini_model
+        from llm_agent.models import is_gemini_model
 
         parts = text.strip().split()
         messages = []

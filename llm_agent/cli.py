@@ -21,30 +21,14 @@ from llm_agent.config import load_config
 from llm_agent.debug import enable_debug, get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, format_tokens
+from llm_agent.models import (
+    CONTEXT_BUDGET, DEFAULT_MODEL, DEFAULT_THINKING, MODELS,
+    MAX_STEPS, MAX_STEPS_GEMINI,
+    context_window, is_gemini_model, is_ollama_model, is_openai_model,
+)
 from llm_agent.tools import base
 from llm_agent.tools.base import _resolve
 
-MODELS = {
-    "opus": "claude-opus-4-6",
-    "sonnet": "claude-sonnet-4-6",
-    "haiku": "claude-haiku-4-5",
-    "gemini-flash": "gemini-2.5-flash",
-    "gemini-pro": "gemini-3.1-pro-preview",
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "gpt-5.2": "gpt-5.2",
-    "o3": "o3",
-    "o4-mini": "o4-mini",
-    "qwen3": "ollama:qwen3.5:122b",
-    "qwen3-cloud": "ollama:qwen3.5:cloud",
-    "qwen3-coder": "ollama:qwen3.5:35b-a3b-coding-nvfp4",
-    "gemma4-31b": "ollama:gemma4:31b",
-    "nemotron-nano": "ollama:nemotron-3-nano:latest",
-}
-DEFAULT_MODEL = "sonnet"
-DEFAULT_THINKING = {
-    "gemini-3.1-pro-preview": "high",
-}
 ATTACHMENT_TYPES = {
     ".png":  ("image/png",  "image"),
     ".jpg":  ("image/jpeg", "image"),
@@ -68,25 +52,6 @@ def update_terminal_title():
 def reset_terminal_title():
     """Reset the terminal title to the default."""
     set_terminal_title("")
-MAX_STEPS = 20
-# Gemini models tend to make single tool calls per turn rather than batching,
-# so they burn through steps faster and need a higher limit.
-MAX_STEPS_GEMINI = 50
-CONTEXT_WINDOWS = {
-    "claude-opus-4-6": 200_000,
-    "claude-sonnet-4-6": 200_000,
-    "claude-haiku-4-5": 200_000,
-    "gemini-2.5-flash": 1_000_000,
-    "gemini-3.1-pro-preview": 1_000_000,
-    "gpt-4o": 128_000,
-    "gpt-4o-mini": 128_000,
-    "gpt-5.2": 400_000,
-    "o3": 200_000,
-    "o4-mini": 200_000,
-}
-# Default context window for Ollama models (override with OLLAMA_CONTEXT_WINDOW env var)
-OLLAMA_DEFAULT_CONTEXT = 32_768
-CONTEXT_BUDGET = 0.80
 
 
 def estimate_tokens(messages):
@@ -128,11 +93,7 @@ def trim_conversation(conversation, last_input_tokens, model, client=None):
     by all subsequent messages until the next real user message.  This ensures
     we never split a tool_use/tool_result pair.
     """
-    if is_ollama_model(model):
-        default_ctx = int(os.environ.get("OLLAMA_CONTEXT_WINDOW", OLLAMA_DEFAULT_CONTEXT))
-        window = CONTEXT_WINDOWS.get(model, default_ctx)
-    else:
-        window = CONTEXT_WINDOWS.get(model, 200_000)
+    window = context_window(model)
     budget = int(window * CONTEXT_BUDGET)
     if last_input_tokens <= budget:
         return conversation
@@ -241,17 +202,6 @@ def _summarize_dropped(client, model, messages):
         pass
     return None
 
-
-def is_gemini_model(model):
-    return model.startswith("gemini-")
-
-
-def is_openai_model(model):
-    return model in ("gpt-4o", "gpt-4o-mini", "gpt-5.2", "o3", "o4-mini", "o3-mini")
-
-
-def is_ollama_model(model):
-    return model.startswith("ollama:")
 
 
 def parse_attachments(text):
@@ -427,11 +377,7 @@ def agent_loop(session):
             context_info = ""
             last_input = turn_usage.get("last_input", 0)
             if last_input > 0:
-                if is_ollama_model(session.model):
-                    default_ctx = int(os.environ.get("OLLAMA_CONTEXT_WINDOW", OLLAMA_DEFAULT_CONTEXT))
-                    window = CONTEXT_WINDOWS.get(session.model, default_ctx)
-                else:
-                    window = CONTEXT_WINDOWS.get(session.model, 200_000)
+                window = context_window(session.model)
                 remaining_pct = max(0, (window - last_input) / window * 100)
                 context_info = f" | context: {remaining_pct:.0f}% remaining"
             display.status(

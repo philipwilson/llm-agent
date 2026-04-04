@@ -10,19 +10,10 @@ from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
 
 
+from llm_agent.models import REASONING_MODELS, max_output_tokens as _max_output_tokens
+
 MAX_RETRIES = 3
 RETRY_DELAYS = [1, 2, 4]
-
-# Reasoning models use different parameters and roles
-REASONING_MODELS = {"o3", "o4-mini", "o3-mini", "gpt-5.2"}
-
-MAX_OUTPUT_TOKENS = {
-    "gpt-4o": 16_384,
-    "gpt-4o-mini": 16_384,
-    "gpt-5.2": 128_000,
-    "o3": 100_000,
-    "o4-mini": 100_000,
-}
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SYSTEM_PROMPT_FILE = os.path.join(SCRIPT_DIR, "system_prompt.txt")
@@ -151,7 +142,7 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-    max_tokens = MAX_OUTPUT_TOKENS.get(model, 16_384)
+    max_tokens = _max_output_tokens(model)
     if is_reasoning:
         api_kwargs["max_completion_tokens"] = max_tokens
     else:

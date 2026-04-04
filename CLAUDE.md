@@ -49,6 +49,7 @@ tests/
     test_cli_utils.py          — estimate_tokens, parse_attachments, model detection, trim_conversation
     test_config.py             — config file loading, validation, type checking
     test_debug.py              — debug logger events, truncation, no-op mode
+    test_models.py             — alias resolution, provider detection, context windows, max tokens
     test_context.py            — project type detection, config parsers
     test_skills.py             — skill parsing, rendering, discovery
     test_session.py            — Session command routing, state management
@@ -202,6 +203,7 @@ llm_agent/
     cli.py              — main, arg parsing, REPL, run_question, setup_delegate
     config.py           — user config file (~/.config/llm-agent/config.toml)
     debug.py            — debug/trace logging (DebugLogger, _NoOpDebug, get_debug)
+    models.py           — canonical model registry (aliases, providers, context windows, max tokens)
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion
@@ -246,6 +248,7 @@ tests/                  — pytest test suite (see Testing section)
 
 The agent is split across several modules:
 
+- **`models.py`** — canonical model registry: aliases, provider detection, context windows, max output tokens, step limits. All other modules import from here.
 - **`cli.py`** — entry point, arg parsing, REPL loop, selects agent turn function based on model
 - **`agent.py`** — Anthropic streaming API calls, prompt caching, retry logic
 - **`gemini_agent.py`** — Gemini streaming, tool schema conversion, message format conversion
