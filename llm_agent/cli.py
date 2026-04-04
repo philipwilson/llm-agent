@@ -337,7 +337,7 @@ def agent_loop(session):
     display = get_display()
     mode = "YOLO mode" if session.auto_approve else "confirm mode"
     display.info(f"{bold('Agent ready')} {dim(f'(model: {session.model}, {mode})')}")
-    display.status("Type a question, /clear, /mcp, /model, /thinking, /skills, /version, or 'quit'.\n")
+    display.status("Type a question, /clear, /mcp, /model, /sessions, /thinking, /skills, /version, or 'quit'.\n")
     update_terminal_title()
 
     ctrl_d_pending = False
@@ -441,6 +441,13 @@ def main():
         action="store_true",
         help="Enable debug trace logging to ~/.local/share/llm-agent/debug/",
     )
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="last",
+        metavar="ID",
+        help="Resume a previous session (default: most recent)",
+    )
     args = parser.parse_args()
 
     # Merge: CLI flag > config file > hardcoded default
@@ -472,7 +479,19 @@ def main():
     client = make_client(model)
 
     from llm_agent.session import Session
-    session = Session(client, model, auto_approve=yolo, thinking_level=thinking)
+
+    if args.resume:
+        from llm_agent.persistence import find_session
+        resume_path = find_session(args.resume)
+        if not resume_path:
+            get_display().error(f"Session not found: {args.resume}")
+            sys.exit(1)
+        session = Session.load_from(
+            resume_path, client, model, auto_approve=yolo, thinking_level=thinking
+        )
+        get_display().status(f"  [resumed session {session._session_id}]")
+    else:
+        session = Session(client, model, auto_approve=yolo, thinking_level=thinking)
 
     # Initialize MCP servers (if configured)
     mcp_manager = None
@@ -498,6 +517,7 @@ def main():
         get_debug().close()
 
     if args.c:
+        session._persist = False  # single-shot mode: don't save sessions
         try:
             success, turn_usage = session.run_question(args.c)
             if turn_usage["input"] > 0 or turn_usage["output"] > 0:

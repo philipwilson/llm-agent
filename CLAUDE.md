@@ -50,6 +50,7 @@ tests/
     test_config.py             — config file loading, validation, type checking
     test_debug.py              — debug logger events, truncation, no-op mode
     test_models.py             — alias resolution, provider detection, context windows, max tokens
+    test_persistence.py        — session save/load, clean messages, list/find sessions
     test_context.py            — project type detection, config parsers
     test_skills.py             — skill parsing, rendering, discovery
     test_session.py            — Session command routing, state management
@@ -129,6 +130,19 @@ When debug is disabled (the default), `get_debug()` returns a `_NoOpDebug` singl
 - `tools/__init__.py` — tool call/result instrumentation in `_run_one()`
 - `session.py` — system prompt and trim logging
 
+## Session Persistence
+
+Sessions are auto-saved to `~/.local/share/llm-agent/sessions/` as JSON files after each turn. Single-shot mode (`-c`) does not save sessions.
+
+**File format:** `{YYYYMMDD-HHMMSS}-{session_id}.json` containing model, cwd, timestamps, usage stats, first question, and the full message list. Non-serializable data (`_gemini_parts`) and base64 attachments are stripped. Writes are atomic (tmp + rename).
+
+**Resuming:** `--resume` loads the most recent session; `--resume ID` loads by ID prefix. The `/sessions` command lists recent sessions.
+
+**Key files:**
+- `persistence.py` — `save_session()`, `load_session()`, `list_sessions()`, `find_session()`
+- `session.py` — `Session._save()`, `Session.load_from()`, `/sessions` command
+- `cli.py` — `--resume` flag and resume flow in `main()`
+
 ## Running
 
 ```bash
@@ -204,6 +218,7 @@ llm_agent/
     config.py           — user config file (~/.config/llm-agent/config.toml)
     debug.py            — debug/trace logging (DebugLogger, _NoOpDebug, get_debug)
     models.py           — canonical model registry (aliases, providers, context windows, max tokens)
+    persistence.py      — session persistence (save/load/list/find sessions)
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion
@@ -400,7 +415,7 @@ Branch: !`git branch --show-current`
 - `/name [args]` — invoke a skill (e.g. `/review src/main.py`)
 - `/mcp` — list connected MCP servers and their tools
 
-Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
+Built-in commands (`/clear`, `/copy`, `/mcp`, `/model`, `/sessions`, `/thinking`, `/version`) cannot be shadowed by skills. `/copy` is TUI-only (copies last response to clipboard).
 
 **Key files:**
 - `skills.py` — `parse_skill()`, `load_all_skills()`, `render_skill()`, `format_skill_list()`

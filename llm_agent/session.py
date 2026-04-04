@@ -5,9 +5,15 @@ for state management and command handling, keeping them as thin
 input/output adapters.
 """
 
+from datetime import datetime, timezone
+
 from llm_agent import VERSION
 from llm_agent.display import get_display
-from llm_agent.formatting import red, yellow
+from llm_agent.formatting import dim, red, yellow
+from llm_agent.persistence import (
+    new_session_id, session_path, save_session, load_session,
+    list_sessions, find_session,
+)
 from llm_agent.skills import load_all_skills, render_skill, format_skill_list
 from llm_agent.tools.base import FileObservationStore
 from llm_agent.agents import BackgroundSubagentStore, DEFAULT_SUBAGENT_MAX_STEPS
@@ -28,6 +34,13 @@ class Session:
         self._file_observations = FileObservationStore()
         self._subagent_tasks = BackgroundSubagentStore()
 
+        # Session persistence
+        self._session_id = new_session_id()
+        self._session_path = None
+        self._started_at = datetime.now(timezone.utc)
+        self._first_question = None
+        self._persist = True  # disabled for -c single-shot mode
+
         # Per-session system prompt (Phase 3)
         from llm_agent.agent import refresh_project_context
         self._system_prompt = refresh_project_context()
@@ -36,6 +49,29 @@ class Session:
         get_debug().log_system_prompt(self._system_prompt)
 
         self._setup_delegate()
+
+    @classmethod
+    def load_from(cls, path, client, model, auto_approve=False, thinking_level=None):
+        """Resume a session from a saved file.
+
+        The model from the file is used unless the caller provides an
+        explicit override (i.e. user passed -m on the CLI).
+        """
+        data = load_session(path)
+        session = cls(client, model, auto_approve=auto_approve,
+                      thinking_level=thinking_level)
+        session.conversation = data.get("messages", [])
+        session.session_usage = data.get("usage", session.session_usage)
+        session._session_id = data.get("session_id", session._session_id)
+        session._session_path = path
+        session._first_question = data.get("first_question")
+        started = data.get("started_at")
+        if started:
+            try:
+                session._started_at = datetime.fromisoformat(started)
+            except (ValueError, TypeError):
+                pass
+        return session
 
     def handle_command(self, text):
         """Try to handle text as a built-in command or skill.
@@ -65,6 +101,9 @@ class Session:
 
         if stripped == "/skills":
             return self._handle_skills(), None
+
+        if stripped == "/sessions":
+            return self._handle_sessions(), None
 
         # Skill invocation
         if text.startswith("/"):
@@ -97,6 +136,9 @@ class Session:
         from llm_agent.agent import agent_turn
 
         turn_usage = {"input": 0, "output": 0, "cache_read": 0, "cache_create": 0}
+
+        if self._first_question is None:
+            self._first_question = user_input[:200]
 
         text, attachment_blocks, error = parse_attachments(user_input)
         if error:
@@ -185,7 +227,24 @@ class Session:
                 estimate_tokens(self.conversation),
             )
 
+        # Auto-save session to disk
+        if self._persist and self.conversation:
+            self._save()
+
         return True, turn_usage
+
+    def _save(self):
+        """Persist the current session to disk."""
+        if not self._session_path:
+            self._session_path = session_path(self._session_id, self._started_at)
+        try:
+            save_session(
+                self._session_path, self._session_id, self.model,
+                self.conversation, self.session_usage,
+                self._started_at, self._first_question,
+            )
+        except OSError:
+            pass  # non-fatal: don't crash the agent if save fails
 
     def clear(self):
         """Clear conversation and session usage. Returns list of status messages."""
@@ -341,6 +400,25 @@ class Session:
                 return ["(no MCP servers connected)"]
         except Exception:
             return ["(MCP not available)"]
+
+    def _handle_sessions(self):
+        """Handle /sessions command. Returns list of status messages."""
+        sessions = list_sessions(limit=15)
+        if not sessions:
+            return ["(no saved sessions)"]
+        lines = ["Recent sessions:"]
+        for s in sessions:
+            started = s.get("started_at", "")[:16].replace("T", " ")
+            q = s.get("first_question", "") or "(no question)"
+            if len(q) > 60:
+                q = q[:57] + "..."
+            sid = s.get("session_id", "?")
+            model = s.get("model", "?")
+            lines.append(
+                f"  {dim(f'[{sid}]')} {started}  {model}  {dim(q)}"
+            )
+        lines.append(dim(f"\n  Resume with: llm-agent --resume [ID]"))
+        return lines
 
     def _handle_skills(self):
         """Handle /skills command. Returns list of status messages."""
