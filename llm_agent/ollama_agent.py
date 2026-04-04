@@ -4,6 +4,7 @@ import json
 import os
 import time
 
+from llm_agent.debug import get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.openai_agent import _convert_tools, _to_openai_messages
@@ -63,11 +64,20 @@ def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     full_text = ""
     tool_call_accum = {}
 
+    debug = get_debug()
+
     for attempt in range(MAX_RETRIES + 1):
         try:
             full_text = ""
             printed_text = False
             tool_call_accum = {}
+
+            debug.log_api_request(
+                model=model, provider="ollama",
+                num_messages=len(openai_messages),
+                num_tools=len(openai_tools),
+            )
+            _turn_start = time.monotonic()
 
             stream = client.chat.completions.create(**api_kwargs)
 
@@ -112,6 +122,13 @@ def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                         if tc_delta.function and tc_delta.function.arguments:
                             tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
+            debug.log_api_response(
+                model=model,
+                usage=dict(usage_totals) if usage_totals else None,
+                content_types=[("text" if full_text else None)]
+                              + [f"tool_call:{tc['name']}" for tc in tool_call_accum.values()],
+                duration=time.monotonic() - _turn_start,
+            )
             break  # success
 
         except Exception as e:
@@ -121,6 +138,7 @@ def ollama_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                 "APIConnectionError", "APITimeoutError",
                 "InternalServerError", "ConnectionError",
             )
+            debug.log_api_error(model, e, attempt, will_retry=retryable and attempt < MAX_RETRIES)
             if retryable and attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 get_display().error(f"\n{yellow(f'Ollama error: {e}. Retrying in {delay}s...')}")

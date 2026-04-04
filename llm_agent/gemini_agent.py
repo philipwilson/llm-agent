@@ -4,6 +4,7 @@ import base64
 import os
 import time
 
+from llm_agent.debug import get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
@@ -151,6 +152,8 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     printed_text = False
     last_usage = None
 
+    debug = get_debug()
+
     for attempt in range(MAX_RETRIES + 1):
         try:
             function_calls = []
@@ -158,6 +161,14 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
             full_text = ""
             printed_text = False
             last_usage = None
+
+            debug.log_api_request(
+                model=model, provider="gemini",
+                num_messages=len(contents),
+                num_tools=len(effective_tools) if effective_tools else 0,
+                extra={"thinking": thinking_level} if thinking_level else None,
+            )
+            _turn_start = time.monotonic()
 
             for chunk in client.models.generate_content_stream(
                 model=model, contents=contents, config=config
@@ -178,17 +189,26 @@ def gemini_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                 if chunk.usage_metadata:
                     last_usage = chunk.usage_metadata
 
+            debug.log_api_response(
+                model=model,
+                usage=dict(usage_totals) if usage_totals else None,
+                content_types=([("text" if full_text else None)]
+                               + [f"function_call:{fc.name}" for fc in function_calls]),
+                duration=time.monotonic() - _turn_start,
+            )
             break  # success
 
         except Exception as e:
             error_name = type(e).__name__
             if error_name == "ClientError" and "not supported" in str(e).lower():
+                debug.log_api_error(model, e, attempt, will_retry=False)
                 get_display().error(f"\n{red(str(e))}")
                 return messages, True
             retryable = error_name in (
                 "ResourceExhausted", "InternalServerError",
                 "ServiceUnavailable", "TooManyRequests",
             )
+            debug.log_api_error(model, e, attempt, will_retry=retryable and attempt < MAX_RETRIES)
             if retryable and attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 get_display().error(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")

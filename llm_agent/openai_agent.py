@@ -4,6 +4,7 @@ import json
 import os
 import time
 
+from llm_agent.debug import get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
@@ -164,11 +165,21 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
     # Tool call accumulators: {index: {id, name, arguments}}
     tool_call_accum = {}
 
+    debug = get_debug()
+
     for attempt in range(MAX_RETRIES + 1):
         try:
             full_text = ""
             printed_text = False
             tool_call_accum = {}
+
+            debug.log_api_request(
+                model=model, provider="openai",
+                num_messages=len(openai_messages),
+                num_tools=len(openai_tools),
+                extra={"reasoning": is_reasoning} if is_reasoning else None,
+            )
+            _turn_start = time.monotonic()
 
             stream = client.chat.completions.create(**api_kwargs)
 
@@ -217,6 +228,13 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                             tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
 
+            debug.log_api_response(
+                model=model,
+                usage=dict(usage_totals) if usage_totals else None,
+                content_types=[("text" if full_text else None)]
+                              + [f"tool_call:{tc['name']}" for tc in tool_call_accum.values()],
+                duration=time.monotonic() - _turn_start,
+            )
             break  # success
 
         except Exception as e:
@@ -225,6 +243,7 @@ def openai_agent_turn(client, model, messages, auto_approve=False, usage_totals=
                 "RateLimitError", "InternalServerError",
                 "APIConnectionError", "APITimeoutError",
             )
+            debug.log_api_error(model, e, attempt, will_retry=retryable and attempt < MAX_RETRIES)
             if retryable and attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 get_display().error(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")

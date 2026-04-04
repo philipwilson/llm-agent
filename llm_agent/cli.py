@@ -17,6 +17,8 @@ import anthropic
 import httpx
 
 from llm_agent import VERSION
+from llm_agent.config import load_config
+from llm_agent.debug import enable_debug, get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import bold, dim, format_tokens
 from llm_agent.tools import base
@@ -455,7 +457,7 @@ def main():
     )
     parser.add_argument(
         "-m", "--model",
-        default=DEFAULT_MODEL,
+        default=None,
         help=f"Model to use (default: {DEFAULT_MODEL}). "
              f"Aliases: {', '.join(MODELS.keys())}. "
              f"For Ollama: ollama:<model-name>",
@@ -473,7 +475,7 @@ def main():
     parser.add_argument(
         "-t", "--timeout",
         type=int,
-        default=base.DEFAULT_COMMAND_TIMEOUT,
+        default=None,
         metavar="SECONDS",
         help=f"Command timeout in seconds (default: {base.DEFAULT_COMMAND_TIMEOUT})",
     )
@@ -488,25 +490,43 @@ def main():
         action="store_true",
         help="Use readline REPL instead of Textual TUI in interactive mode",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug trace logging to ~/.local/share/llm-agent/debug/",
+    )
     args = parser.parse_args()
 
-    base.COMMAND_TIMEOUT = args.timeout
-    model = MODELS.get(args.model)
+    # Merge: CLI flag > config file > hardcoded default
+    config = load_config()
+
+    # Enable debug logging early (before model/client setup)
+    if args.debug or config.get("debug", False):
+        debug_path = enable_debug()
+        get_display().status(f"  [debug log: {debug_path}]")
+    model_str = args.model if args.model is not None else config.get("model", DEFAULT_MODEL)
+    yolo = args.yolo or config.get("yolo", False)
+    timeout = args.timeout if args.timeout is not None else config.get("timeout", base.DEFAULT_COMMAND_TIMEOUT)
+    thinking_arg = args.thinking if args.thinking is not None else config.get("thinking")
+    no_tui = args.no_tui or config.get("no_tui", False)
+
+    base.COMMAND_TIMEOUT = timeout
+    model = MODELS.get(model_str)
     if model is None:
-        if is_ollama_model(args.model):
-            model = args.model
+        if is_ollama_model(model_str):
+            model = model_str
         else:
             get_display().error(
-                f"Unknown model '{args.model}'. "
+                f"Unknown model '{model_str}'. "
                 f"Known aliases: {', '.join(MODELS.keys())}. "
                 f"For Ollama: ollama:<model-name>"
             )
             sys.exit(1)
-    thinking = args.thinking if args.thinking else DEFAULT_THINKING.get(model)
+    thinking = thinking_arg if thinking_arg else DEFAULT_THINKING.get(model)
     client = make_client(model)
 
     from llm_agent.session import Session
-    session = Session(client, model, auto_approve=args.yolo, thinking_level=thinking)
+    session = Session(client, model, auto_approve=yolo, thinking_level=thinking)
 
     # Initialize MCP servers (if configured)
     mcp_manager = None
@@ -528,6 +548,9 @@ def main():
     def _stop_background():
         base.shell.stop_all()
 
+    def _stop_debug():
+        get_debug().close()
+
     if args.c:
         try:
             success, turn_usage = session.run_question(args.c)
@@ -542,8 +565,9 @@ def main():
         finally:
             _stop_background()
             _stop_mcp()
+            _stop_debug()
     else:
-        use_tui = not args.no_tui
+        use_tui = not no_tui
         try:
             if use_tui:
                 try:
@@ -559,6 +583,7 @@ def main():
         finally:
             _stop_background()
             _stop_mcp()
+            _stop_debug()
 
 
 if __name__ == "__main__":

@@ -47,6 +47,8 @@ tests/
     test_formatting.py         — truncate(), format_tokens()
     test_is_dangerous.py       — is_dangerous() security checks (~30 cases)
     test_cli_utils.py          — estimate_tokens, parse_attachments, model detection, trim_conversation
+    test_config.py             — config file loading, validation, type checking
+    test_debug.py              — debug logger events, truncation, no-op mode
     test_context.py            — project type detection, config parsers
     test_skills.py             — skill parsing, rendering, discovery
     test_session.py            — Session command routing, state management
@@ -84,6 +86,47 @@ tests/
 - Tool tests get a `tmp_path` as the shell's working directory via the autouse `reset_shell_cwd` fixture.
 - For tools needing confirmation, use `auto_approve=True` in `handle()` or use the `declining_display` fixture to test rejection.
 - Pure functions (`is_dangerous`, `truncate`, `format_tokens`, etc.) need no mocking at all.
+
+## Configuration
+
+Settings can be persisted in `~/.config/llm-agent/config.toml`. CLI flags override config values. All keys are optional:
+
+```toml
+model = "opus"        # model alias or ollama:<name>
+yolo = true           # auto-approve safe commands
+timeout = 60          # command timeout in seconds
+thinking = "high"     # Gemini thinking level (low/medium/high)
+no_tui = false        # use readline REPL instead of TUI
+debug = false         # enable debug trace logging
+```
+
+Precedence: CLI flag > config file > hardcoded default. Unknown keys and type mismatches produce warnings on stderr. The config file is read once at startup.
+
+**Key files:**
+- `config.py` — `load_config()`, `VALID_KEYS`, `CONFIG_PATH`
+- `cli.py` — merge logic in `main()` after argparse
+
+## Debug / Trace Mode
+
+`--debug` (or `debug = true` in config) writes structured JSON-lines to `~/.local/share/llm-agent/debug/<timestamp>-<pid>.jsonl`. Each line has a UTC timestamp, elapsed seconds, event type, and event data. The log file path is printed at startup.
+
+**Events logged:**
+- `session_start` / `session_end` — PID and cwd
+- `system_prompt` — length and first 2000 chars
+- `api_request` — model, provider, message/tool counts, extras (thinking level, reasoning flag)
+- `api_response` — model, usage stats, content types, duration
+- `api_error` — error type/message, attempt number, retry decision
+- `tool_call` — tool name and params (long strings truncated)
+- `tool_result` — tool name, output line count, duration, error if any
+- `trim` — dropped message count, old/new token estimates
+
+When debug is disabled (the default), `get_debug()` returns a `_NoOpDebug` singleton whose methods are all no-ops, so there is zero overhead.
+
+**Key files:**
+- `debug.py` — `DebugLogger`, `_NoOpDebug`, `enable_debug()`, `get_debug()`
+- `agent.py`, `gemini_agent.py`, `openai_agent.py`, `ollama_agent.py` — API request/response/error instrumentation
+- `tools/__init__.py` — tool call/result instrumentation in `_run_one()`
+- `session.py` — system prompt and trim logging
 
 ## Running
 
@@ -157,6 +200,8 @@ pyproject.toml          — package metadata and entry point
 llm_agent/
     __init__.py         — VERSION and package metadata
     cli.py              — main, arg parsing, REPL, run_question, setup_delegate
+    config.py           — user config file (~/.config/llm-agent/config.toml)
+    debug.py            — debug/trace logging (DebugLogger, _NoOpDebug, get_debug)
     agent.py            — agent_turn, streaming, caching, retry logic (Anthropic)
     gemini_agent.py     — gemini_agent_turn, Gemini streaming + format conversion
     openai_agent.py     — openai_agent_turn, OpenAI streaming + format conversion

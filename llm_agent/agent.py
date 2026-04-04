@@ -6,6 +6,7 @@ import time
 
 import anthropic
 
+from llm_agent.debug import get_debug
 from llm_agent.display import get_display
 from llm_agent.formatting import dim, red, yellow
 from llm_agent.tools import TOOLS, TOOL_REGISTRY, dispatch_tool_calls
@@ -152,6 +153,14 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
             if effective_tools is not None:
                 api_kwargs["tools"] = effective_tools
 
+            debug = get_debug()
+            debug.log_api_request(
+                model=model, provider="anthropic",
+                num_messages=len(cached_msgs),
+                num_tools=len(effective_tools) if effective_tools else 0,
+            )
+            _turn_start = time.monotonic()
+
             with client.messages.stream(**api_kwargs) as stream:
                 for event in stream:
                     if event.type == "content_block_start":
@@ -199,9 +208,16 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                     usage_totals["cache_create"] = usage_totals.get("cache_create", 0) + cache_create
                     usage_totals["last_input"] = final.usage.input_tokens + cache_read + cache_create
 
+            debug.log_api_response(
+                model=model,
+                usage=dict(usage_totals) if usage_totals else None,
+                content_types=[b["type"] for b in content_blocks],
+                duration=time.monotonic() - _turn_start,
+            )
             break  # success, exit retry loop
 
         except (anthropic.RateLimitError, anthropic.InternalServerError) as e:
+            debug.log_api_error(model, e, attempt, will_retry=attempt < MAX_RETRIES)
             if attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 get_display().error(f"\n{yellow(f'API error: {e}. Retrying in {delay}s...')}")
@@ -213,6 +229,7 @@ def agent_turn(client, model, messages, auto_approve=False, usage_totals=None,
                 return messages, True  # give up, return to prompt
 
         except anthropic.APIConnectionError as e:
+            debug.log_api_error(model, e, attempt, will_retry=attempt < MAX_RETRIES)
             if attempt < MAX_RETRIES:
                 delay = RETRY_DELAYS[attempt]
                 get_display().error(f"\n{yellow(f'Connection error: {e}. Retrying in {delay}s...')}")

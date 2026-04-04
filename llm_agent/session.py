@@ -32,6 +32,9 @@ class Session:
         from llm_agent.agent import refresh_project_context
         self._system_prompt = refresh_project_context()
 
+        from llm_agent.debug import get_debug
+        get_debug().log_system_prompt(self._system_prompt)
+
         self._setup_delegate()
 
     def handle_command(self, text):
@@ -174,6 +177,12 @@ class Session:
             self.conversation, last_input, self.model, client=self.client
         )
         turn_usage["trimmed"] = old_len - len(self.conversation)
+        if turn_usage["trimmed"] > 0:
+            from llm_agent.debug import get_debug
+            get_debug().log_trim(
+                turn_usage["trimmed"], last_input,
+                estimate_tokens(self.conversation),
+            )
 
         return True, turn_usage
 

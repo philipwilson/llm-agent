@@ -1,5 +1,7 @@
 """Tool registry: collects schemas and handlers from individual tool modules."""
 
+import time
+
 from llm_agent.tools import (
     read_file,
     read_many_files,
@@ -111,24 +113,33 @@ def dispatch_tool_calls(tool_uses, registry, auto_approve=False):
     display = get_display()
 
     def _run_one(tool_use):
+        from llm_agent.debug import get_debug
+        debug = get_debug()
+
         name = tool_use["name"]
         params = tool_use["input"]
         entry = registry.get(name)
         if entry is None:
             output = f"(unknown tool: {name})"
+            debug.log_tool_result(name, 1, error="unknown tool")
         else:
             try:
                 log_fn = entry.get("log")
                 if log_fn:
                     log_fn(params)
+                debug.log_tool_call(name, params)
+                _t0 = time.monotonic()
                 kwargs = {}
                 if entry.get("needs_confirm"):
                     kwargs["auto_approve"] = auto_approve
                 if entry.get("context"):
                     kwargs["context"] = entry["context"]
                 output = entry["handler"](params, **kwargs)
+                debug.log_tool_result(name, len(output.splitlines()),
+                                      duration=time.monotonic() - _t0)
             except Exception as e:
                 output = f"(error in tool '{name}': {e})"
+                debug.log_tool_result(name, 1, error=str(e))
         display.tool_result(len(output.splitlines()))
         return {
             "type": "tool_result",
