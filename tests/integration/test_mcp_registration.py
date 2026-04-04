@@ -172,3 +172,35 @@ class TestMcpManagerFormat:
         mgr = MCPManager()
         result = mgr.call_tool("nonexistent_tool", {})
         assert "not found" in result
+
+    def test_call_tool_timeout(self):
+        """Tool calls that exceed TOOL_CALL_TIMEOUT return an error string."""
+        import asyncio
+        from llm_agent.mcp_client import MCPManager
+
+        mgr = MCPManager()
+        mgr.TOOL_CALL_TIMEOUT = 0.1  # 100ms for fast test
+        mgr._loop = asyncio.new_event_loop()
+        import threading
+        mgr._thread = threading.Thread(
+            target=mgr._loop.run_forever, daemon=True
+        )
+        mgr._thread.start()
+
+        # Register a fake session and tool mapping
+        mgr._tool_map["slow_tool"] = "fake_server"
+        mgr._sessions["fake_server"] = "placeholder"
+
+        # Monkey-patch _async_call_tool to sleep longer than the timeout
+        async def _slow_call(server_name, tool_name, params):
+            await asyncio.sleep(5)
+            return "should not reach here"
+
+        mgr._async_call_tool = _slow_call
+
+        result = mgr.call_tool("slow_tool", {})
+        assert "timed out" in result
+        assert "slow_tool" in result
+
+        mgr._loop.call_soon_threadsafe(mgr._loop.stop)
+        mgr._thread.join(timeout=2)

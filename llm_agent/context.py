@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import tomllib
 
 
 def _run_git(args, cwd=None, timeout=2):
@@ -43,12 +44,11 @@ def _detect_project(cwd):
 def _parse_pyproject(path):
     """Extract project name from pyproject.toml."""
     try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("name") and "=" in line:
-                    name = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    return f"Python project: {name} (pyproject.toml)"
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        name = data.get("project", {}).get("name")
+        if name:
+            return f"Python project: {name} (pyproject.toml)"
     except Exception:
         pass
     return "Python project (pyproject.toml)"
@@ -73,12 +73,11 @@ def _parse_package_json(path):
 def _parse_cargo(path):
     """Extract project name from Cargo.toml."""
     try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("name") and "=" in line:
-                    name = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    return f"Rust project: {name} (Cargo.toml)"
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        name = data.get("package", {}).get("name")
+        if name:
+            return f"Rust project: {name} (Cargo.toml)"
     except Exception:
         pass
     return "Rust project (Cargo.toml)"

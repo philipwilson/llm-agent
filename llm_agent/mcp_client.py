@@ -173,6 +173,9 @@ class MCPManager:
                 lines.append(f"    - {t}")
         return "\n".join(lines)
 
+    # Timeout in seconds for individual MCP tool calls.
+    TOOL_CALL_TIMEOUT = 60
+
     def call_tool(self, tool_name, params):
         """Call an MCP tool synchronously (blocks until result)."""
         server_name = self._tool_map.get(tool_name)
@@ -183,7 +186,18 @@ class MCPManager:
             self._async_call_tool(server_name, tool_name, params),
             self._loop,
         )
-        return future.result()
+        try:
+            return future.result(timeout=self.TOOL_CALL_TIMEOUT)
+        except TimeoutError:
+            future.cancel()
+            logger.warning(
+                "MCP tool '%s' on server '%s' timed out after %ds",
+                tool_name, server_name, self.TOOL_CALL_TIMEOUT,
+            )
+            return (
+                f"Error: MCP tool '{tool_name}' timed out after "
+                f"{self.TOOL_CALL_TIMEOUT}s"
+            )
 
     async def _async_call_tool(self, server_name, tool_name, params):
         try:

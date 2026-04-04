@@ -36,6 +36,24 @@ class TestParsePyproject:
         result = _parse_pyproject(str(f))
         assert "single-quoted" in result
 
+    def test_name_under_wrong_table(self, tmp_path):
+        """Only [project].name should match, not a random top-level name key."""
+        f = tmp_path / "pyproject.toml"
+        f.write_text('[tool.poetry]\nname = "poetry-name"\n')
+        result = _parse_pyproject(str(f))
+        # Should fall back — no [project] table
+        assert result == "Python project (pyproject.toml)"
+
+    def test_multiline_value(self, tmp_path):
+        """tomllib handles complex TOML that old line-split couldn't."""
+        f = tmp_path / "pyproject.toml"
+        f.write_text(
+            '[project]\nname = "my-pkg"\n'
+            'description = """\nA long\nmultiline description.\n"""\n'
+        )
+        result = _parse_pyproject(str(f))
+        assert "my-pkg" in result
+
 
 class TestParsePackageJson:
     def test_with_scripts(self, tmp_path):
@@ -78,6 +96,14 @@ class TestParseCargo:
         f.write_text("[workspace]\nmembers = []\n")
         result = _parse_cargo(str(f))
         assert "Rust" in result
+
+    def test_name_with_inline_comment(self, tmp_path):
+        """tomllib handles inline comments correctly (old regex didn't)."""
+        f = tmp_path / "Cargo.toml"
+        f.write_text('[package]\nname = "my-crate" # the main crate\n')
+        result = _parse_cargo(str(f))
+        assert "my-crate" in result
+        assert "#" not in result
 
 
 class TestParseGoMod:
